@@ -9,8 +9,8 @@
 // @noframes
 // @homepageURL  https://github.com/lvciid/torn-market-watchdog
 // @supportURL   https://github.com/lvciid/torn-market-watchdog/issues
-// @downloadURL  https://raw.githubusercontent.com/lvciid/torn-market-watchdog/main/torn-market-watchdog.user.js
-// @updateURL    https://raw.githubusercontent.com/lvciid/torn-market-watchdog/main/torn-market-watchdog.user.js
+// @downloadURL  https://lvciid.github.io/torn-market-watchdog/torn-market-watchdog.user.js
+// @updateURL    https://lvciid.github.io/torn-market-watchdog/torn-market-watchdog.user.js
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
