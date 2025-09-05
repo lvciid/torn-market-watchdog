@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Market Watchdog
 // @namespace    https://github.com/lvciid/torn-market-watchdog
-// @version      0.3.11
+// @version      0.3.15
 // @description  Highlights deals, warns on ripoffs, and alerts watchlist items using live Torn API data. Your API key stays local and never exposed.
 // @author       lvciid
 // @match        *://*.torn.com/*
@@ -36,8 +36,15 @@
   // Default dock icons as inline SVG data URIs
   // Owner-controlled LV monogram (SVG data URIs), optimized for ~22px
   // Light: near-white stroke; Dark: deep navy stroke
-  const DOCK_ICON_DEFAULT_LIGHT = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f8fafc' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 4v12h8' /><path d='M18 4l-4 12h8' /></svg>";
-  const DOCK_ICON_DEFAULT_DARK  = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230e1a2b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 4v12h8' /><path d='M18 4l-4 12h8' /></svg>";
+  // High-quality hosted icon (Iconify CDN, Phosphor storefront — bold, legible)
+  const DOCK_ICON_DEFAULT_LIGHT = 'https://api.iconify.design/ph/storefront-bold.svg?color=white';
+  const DOCK_ICON_DEFAULT_DARK  = 'https://api.iconify.design/ph/storefront-bold.svg?color=white';
+  // Optional: set this to your image URL or data URI to use it as the dock icon
+  // Example: const CUSTOM_ICON_URL = 'data:image/png;base64,...';
+  const CUSTOM_ICON_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAACXBIWXMAAAsTAAALEwEAmpwYAAAEkUlEQVR4nO2ZeaxdQxzHP729qtrQUttD0Uo9tGqPJURsQSxRlPL+EPwhJRIEpQtF7YQ2VEIJESSopVH9ByGKiKaW0lbl8Uhf6OPVUkmVLvKT78iYnHPPzN1eE/eTnOS9e2bmzPfMzG870KJFixb/Z0rAaOBc4GpgKjAduAm4C5gBXAuMA/ZgM6MMnAk8D/QCm3R9CbwEPADcBkwCpgD3A68B3wPLJW54XwoYAEwEvvUm/z5wGdAW0b8fcCgwC1gNzAF2pckcCSzxBLwLHF3DeEOBu4EfgUtpAvYWrwP+koA1erD9Xg/GAp8BTwNb0sCD/Ji3Ct8B+zbgOYOBucDb+ruu2Bt/whPRBYygcZSAp4C3dBbrxvRgJZphOvsDr8oI1IUTgA0SsR44huaxNbAMuLDWgQZrBdxq3ErzOQxYBexYyyAzPBFL5Pz6gpnAQ9V23lbm1QmZEHFAB9EYtgd+qjYCuMETsVyHLw/zLb/oLJnZ3DPyGQMVwtj2/QQ4o0LbB4E7qYKlnhALO/IY77Vz1yKtUBH3BP3+lFPMYh+gO3Lcf9nfG3xjQez0YoYQu/aOeE5XRr+bK7Q3r39UipArg7dbibk5QtoTV91dtk3zuFcRdDTPJJjcCRmTWRy5BS4P+q0uWP2zgXkpQhZ5g58f0X4y8LvavwfslfCsC5S3WBw3qqDtflrFaHo8IUdE9ikrHG+0p1+T0mGtJ2RnNh/6K0yKxuUbdm3RuHn9E3yWE6PwDSn5z6+eEPPwqYwBZgO35IThljQ9rpW3OOqKyHGHqS4QzTeeEPMpKYzXGbsDeAX4WMIcbcrtvwJ2Ag4BvpAFK2KM2kbzhifErEos2+gNW8TquETCrlGu360KykivzSjl60MiXpL5raRo0wl5JKGfhTLPZfw+QgWKjYrJDshoswA4r2B8i7WmJcznP/FTV8LhslD7vpx7x0vEsTlbxlbyoILxP0qt1gxTAOfEHBfZ70BtozlB4eAcYCVweEafHYCvgY6CsXeX2GQr+ronxA5tLO1axWXaQhM1UYteQwZpy5lhKGJKtcnVWUEEXLTsPrspx7BV/Vz/Z4l4U37hlIi8pbva8lNJCZUTszDhrHRogvNz/NBWnmWcpUlaxJ2HWbwXqIFxQXRqhegiLEJdpxJSKedMLNR4D3se/lPVCEJ20dmouY62wBOyXuWhPMbKH5yWc9/OSafG+i3wG2Z6Qx9R0vazTxE106bJOTE9Fd7OcN3Pyu9N3A/edrVcPcyBJmUkUvNT09tKWFHuD0/MSn3QyeKdIIsboG8infL4A5V7LFV+MUTprX2e8M/TjdpuFi3UFbf3nZhehRwhVkFZobqtZZcfKnEKc5WLgJ815jyvDFtWZLFY56khnCrv7MSsVdmonGGVOuQfLq5g7bZTW8dI+ZWXlUQ1lHa9rTBHP7iGMYcq5O9RSF+v7y2FlGVJegOnadXzkwqKeY5+OjMzJeDRvvj05rCDen3gODfJOpkVugo4HTgROFnbbZqc2yrVqaZGfnNsGqM18SdVSVkh69apcugHwLPA7SohWRDYokULmsPf6qtUFOay8z8AAAAASUVORK5CYII=";
+  // Lock the buddy as the icon; ignore runtime overrides
+  const LOCK_BUDDY_ICON = true;
+  // Muffled-yell sound on hover is controlled via settings (buddySound)
   const STORAGE_KEYS = {
     apiKey: 'tmw_api_key',
     items: 'tmw_items_dict', // { ts: number, itemsById: {...}, idByName: {...} }
@@ -48,6 +55,8 @@
     ui: 'tmw_ui_state', // { dock:{x:number,y:number}, open:boolean, apiCollapsed?:boolean }
     mutes: 'tmw_mutes', // { [itemId]: number (muteUntilTs) }
     hits: 'tmw_hits', // [ { ts, itemId, name, price, target } ]
+    userIcon: 'tmw_user_icon', // data URL for custom dock icon
+    buddyHint: 'tmw_buddy_audio_hint_shown',
   };
 
   // Defaults
@@ -66,13 +75,15 @@
     disableOverConfirm: false,
     sounds: true,
     volume: 0.08,
-    quiet: { start: 23, end: 7 }, // quiet hours local time (23:00-07:00)
+    buddyVolume: 0.12,
     compactBadges: false,
     badgePosition: 'name', // or 'price'
     openOnHit: false,
     snoozeUntil: 0,
     monitorEnabled: false,
     monitorIntervalSec: 30,
+    buddySound: true,
+    buddyCooldownMs: 220,
   };
 
   // -----------------------
@@ -101,13 +112,15 @@
       disableOverConfirm: s.disableOverConfirm != null ? !!s.disableOverConfirm : DEFAULTS.disableOverConfirm,
       sounds: s.sounds != null ? !!s.sounds : DEFAULTS.sounds,
       volume: (s.volume != null ? Number(s.volume) : DEFAULTS.volume),
-      quiet: s.quiet || DEFAULTS.quiet,
+      buddyVolume: (s.buddyVolume != null ? Number(s.buddyVolume) : DEFAULTS.buddyVolume),
       compactBadges: s.compactBadges != null ? !!s.compactBadges : DEFAULTS.compactBadges,
       badgePosition: s.badgePosition || DEFAULTS.badgePosition,
       openOnHit: s.openOnHit != null ? !!s.openOnHit : DEFAULTS.openOnHit,
       snoozeUntil: Number(s.snoozeUntil || 0),
       monitorEnabled: s.monitorEnabled != null ? !!s.monitorEnabled : DEFAULTS.monitorEnabled,
       monitorIntervalSec: Number(s.monitorIntervalSec || DEFAULTS.monitorIntervalSec),
+      buddySound: s.buddySound != null ? !!s.buddySound : DEFAULTS.buddySound,
+      buddyCooldownMs: Number(s.buddyCooldownMs || DEFAULTS.buddyCooldownMs),
     };
   }
 
@@ -325,17 +338,36 @@
       <style>
         :host { all: initial; }
         .dock { position:fixed; bottom:0; right:0; transform: translate(0,0); }
-        .dock-btn { position:relative; width:42px; height:42px; border-radius:50%; background:linear-gradient(135deg,#2d6cdf,#5b8def); color:#fff; border:none; box-shadow:0 8px 24px rgba(0,0,0,.35); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:22px; transition: transform .2s ease, filter .2s ease; }
-        .dock-btn:hover { filter: brightness(1.05); transform: translateY(-1px); }
-        .dock-btn::after { content:""; position:absolute; inset:-2px; border-radius:50%; background: radial-gradient(closest-side, rgba(93,155,255,.5), transparent); opacity:.0; transition: opacity .3s ease; }
-        .dock-btn:hover::after { opacity:.7; }
+        .dock-btn { position:relative; width:46px; height:46px; border-radius:50%; color:#fff; border:1px solid rgba(255,255,255,.08); box-shadow:
+            0 6px 18px rgba(0,0,0,.35),
+            inset 0 0 0 1px rgba(255,255,255,.04);
+          cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:22px; transition: transform .18s ease, filter .2s ease, box-shadow .2s ease;
+          background: radial-gradient(120% 120% at 30% 20%, rgba(255,255,255,.25), rgba(255,255,255,0) 40%), linear-gradient(145deg,#1e3a8a,#3b82f6);
+        }
+        .dock-btn:hover { filter: brightness(1.06); transform: translateY(-1px); box-shadow:
+            0 8px 22px rgba(0,0,0,.38), inset 0 0 0 1px rgba(255,255,255,.06);
+        }
+        .dock-btn::after { content:""; position:absolute; inset:2px; border-radius:50%; pointer-events:none; background:
+            radial-gradient(140% 90% at 50% 0%, rgba(255,255,255,.25), transparent 60%);
+          opacity:.8; }
         .dock-btn.tmw-breathe { animation: tmw-breath 3.2s ease-in-out infinite alternate; }
         .dock-btn.tmw-pop { animation: tmw-pop 600ms ease; }
         .dock-btn.tmw-spin { animation: tmw-spin 480ms ease-out; }
-        .dock-btn.state-active { background: linear-gradient(135deg,#2d6cdf,#5b8def); }
-        .dock-btn.state-paused { background: linear-gradient(135deg,#b91c1c,#ef4444); }
-        .dock-btn.state-snoozed { background: linear-gradient(135deg,#0ea5e9,#60a5fa); }
-        .dock-btn.state-cooling { background: linear-gradient(135deg,#d97706,#f59e0b); }
+        /* Irritated effect */
+        .dock-btn.tmw-irritated { animation: tmw-shake 600ms cubic-bezier(.36,.07,.19,.97) both; }
+        .dock-btn.tmw-irritated .icon-preview { filter: drop-shadow(0 0 10px rgba(255,59,48,.8)); }
+        .dock-btn.tmw-irritated::before { content:"!!"; position:absolute; top:-6px; right:-4px; color:#ff3b30; font:700 14px/1 system-ui, sans-serif; text-shadow:0 0 2px #fff, 0 0 6px rgba(255,59,48,.6); animation: tmw-pop 350ms ease-out; }
+        /* Hover yell: show sound waves and tilt */
+        .dock-btn .yell { position:absolute; left:-6px; top:50%; width:12px; height:12px; transform: translate(-50%, -50%) rotate(35deg) scale(.9); opacity:0; pointer-events:none; }
+        .dock-btn .yell, .dock-btn .yell::before, .dock-btn .yell::after { box-sizing:border-box; border:2px solid #fca5a5; border-left-color: transparent; border-top-color: transparent; border-bottom-color: transparent; border-radius:50%; filter: drop-shadow(0 0 6px rgba(252,165,165,.35)); }
+        .dock-btn .yell::before { content:""; position:absolute; inset:-6px; opacity:.75; }
+        .dock-btn .yell::after { content:""; position:absolute; inset:-12px; opacity:.55; }
+        .dock-btn:hover .yell { opacity:1; animation: tmw-yell 900ms ease-out infinite; }
+        .dock-btn:hover .icon-preview, .dock-btn:hover #tmw-emoji { transform: scale(1.08) rotate(-6deg); }
+        .dock-btn.state-active { background: radial-gradient(120% 120% at 30% 20%, rgba(255,255,255,.25), rgba(255,255,255,0) 40%), linear-gradient(145deg,#1e3a8a,#3b82f6); }
+        .dock-btn.state-paused { background: radial-gradient(120% 120% at 30% 20%, rgba(255,255,255,.18), rgba(255,255,255,0) 40%), linear-gradient(145deg,#7f1d1d,#ef4444); }
+        .dock-btn.state-snoozed { background: radial-gradient(120% 120% at 30% 20%, rgba(255,255,255,.22), rgba(255,255,255,0) 40%), linear-gradient(145deg,#0c4a6e,#38bdf8); }
+        .dock-btn.state-cooling { background: radial-gradient(120% 120% at 30% 20%, rgba(255,255,255,.2), rgba(255,255,255,0) 40%), linear-gradient(145deg,#7c2d12,#f59e0b); }
         /* Alternative dock shapes */
         .shape-tag .dock-btn { border-radius:10px; width:50px; height:36px; padding-left:8px; clip-path: polygon(0% 0%, 72% 0%, 86% 50%, 72% 100%, 0% 100%); }
         .shape-tag .ring { display:none; }
@@ -363,7 +395,8 @@
         label { display:block; font-size:12px; margin:6px 0 2px; color:#9ca3af; }
         input[type="text"], input[type="number"], input[type="password"] { width:100%; padding:8px; border-radius:8px; border:1px solid #374151; background:#0b1220; color:#e5e7eb; }
         .inline { display:flex; gap:8px; align-items:center; }
-        .icon-preview { width:22px; height:22px; border-radius:50%; object-fit:cover; border:1px solid #1f2937; }
+        .icon-preview { width:26px; height:26px; border-radius:4px; object-fit:contain; border:none; filter: drop-shadow(0 1px 0 rgba(0,0,0,.18)); transition: transform .18s ease, filter .18s ease; }
+        .dock-btn:hover .icon-preview { transform: scale(1.06); filter: drop-shadow(0 1px 0 rgba(0,0,0,.22)); }
         /* Signature SVG monogram (always shown with lightning effect) */
         #tmw-sig { width:24px; height:24px; display:none; }
         .shape-signature #tmw-emoji, .shape-signature #tmw-icon-img { display:none !important; }
@@ -391,7 +424,20 @@
         .panel.tmw-anim-in { animation: tmw-panel-in 320ms cubic-bezier(.2,.7,.2,1); }
         @keyframes tmw-pulse { 0%{ transform: scale(1); opacity:.8;} 70%{ transform: scale(1.35); opacity:.3;} 100%{ transform: scale(1); opacity:.8;} }
         .idle-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#93c5fd; margin-left:8px; box-shadow:0 0 8px rgba(59,130,246,.6); animation: tmw-pulse 2.2s ease-in-out infinite; vertical-align:middle; }
-        @media (prefers-reduced-motion: reduce) { .dock-btn.tmw-breathe, .dock-btn.tmw-pop, .dock-btn.tmw-spin, .panel.tmw-anim-in, .idle-dot, .panel::before { animation: none !important; } }
+        @media (prefers-reduced-motion: reduce) { .dock-btn.tmw-breathe, .dock-btn.tmw-pop, .dock-btn.tmw-spin, .dock-btn.tmw-irritated, .dock-btn .yell, .panel.tmw-anim-in, .idle-dot, .panel::before { animation: none !important; } }
+        @keyframes tmw-yell { 0% { transform: translate(-50%, -50%) rotate(35deg) scale(.85); opacity:.9; } 70% { opacity:1; } 100% { transform: translate(-50%, -50%) rotate(35deg) scale(1.1); opacity:.6; } }
+        @keyframes tmw-shake {
+          10% { transform: translate(-1px,0) rotate(-2deg); }
+          20% { transform: translate(2px,0) rotate(2deg); }
+          30% { transform: translate(-3px,0) rotate(-3deg); }
+          40% { transform: translate(3px,0) rotate(3deg); }
+          50% { transform: translate(-4px,0) rotate(-2deg); }
+          60% { transform: translate(4px,0) rotate(2deg); }
+          70% { transform: translate(-3px,0) rotate(-1deg); }
+          80% { transform: translate(3px,0) rotate(1deg); }
+          90% { transform: translate(-2px,0) rotate(0deg); }
+          100% { transform: translate(0,0) rotate(0); }
+        }
         .statusbar { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 8px; }
         .pill { display:inline-block; padding:2px 6px; border-radius:999px; font-size:11px; background:#1f2937; color:#e5e7eb; border:1px solid #374151; }
         .pill.green{ background:#0f5132; border-color:#0f5132; color:#d1fae5; }
@@ -416,9 +462,12 @@
         .tmw-radial .node { position:absolute; width:36px; height:36px; border-radius:50%; background:#111827; color:#e5e7eb; border:1px solid #1f2937; box-shadow:0 8px 24px rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; font-size:12px; pointer-events:auto; cursor:pointer; transition: box-shadow .2s ease, transform .2s ease; }
         .tmw-radial .node:hover { background:#1f2937; box-shadow:0 10px 28px rgba(59,130,246,.4); transform: translateY(-1px); }
         .tmw-radial .legend { position:absolute; padding:4px 8px; border-radius:8px; background:#111827; color:#9ca3af; border:1px solid #1f2937; font-size:11px; box-shadow:0 8px 24px rgba(0,0,0,.35); pointer-events:none; white-space:nowrap; }
+        /* One-time audio hint */
+        .tmw-hint { position:fixed; z-index:2147483647; padding:6px 8px; border-radius:8px; background:#111827; color:#e5e7eb; border:1px solid #1f2937; font-size:12px; box-shadow:0 12px 28px rgba(0,0,0,.45); opacity:0; transform: translateY(6px); transition: opacity .25s ease, transform .25s ease; }
+        .tmw-hint.show { opacity:1; transform: translateY(0); }
       </style>
       <div class="dock" id="tmw-dock">
-        <button class="dock-btn" id="tmw-dock-btn" title="Open Torn Market Watchdog">
+        <button class="dock-btn" id="tmw-dock-btn" title="Open Torn Market Watchdog" aria-label="Open Torn Market Watchdog">
           <span id="tmw-emoji">🐶</span>
           <img id="tmw-icon-img" class="icon-preview" style="display:none" alt="icon"/>
           <svg id="tmw-sig" viewBox="0 0 24 24" aria-hidden="true">
@@ -429,9 +478,10 @@
             <path class="stroke s1" d="M6 4v12h8" />
             <path class="stroke s2" d="M18 4l-4 12h8" />
           </svg>
+          <span class="yell" aria-hidden="true"></span>
           <span class="ring" id="tmw-ring"></span>
           <span class="dot" id="tmw-dot"></span>
-          <span class="badge" id="tmw-count" style="display:none">0</span>
+          <span class="badge" id="tmw-count" style="display:none" role="status" aria-live="polite">0</span>
         </button>
       </div>
       <!-- Signature mask defs for shield cutout (monogram punched out) -->
@@ -475,9 +525,13 @@
         const s = getSettings(); s.hideOverpriced = !s.hideOverpriced; setSettings(s); notify('Toggled hide-overpriced'); scanDomSoon(); return;
       }
       togglePanel(ui.panel.style.display !== 'block');
+      try { irritateDock(); } catch(_) {}
     });
     btn.addEventListener('dblclick', (e) => { e.preventDefault(); const s = getSettings(); s.showOnlyDeals = !s.showOnlyDeals; setSettings(s); notify('Toggled deals-only'); scanDomSoon(); });
     btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openRadialMenu(e); });
+    // Yell-on-hover (muffled talk)
+    btn.addEventListener('mouseenter', () => { try { const s = getSettings(); if (s.buddySound) startMuffledYell(); maybeShowAudioHint(); } catch(_) {} });
+    btn.addEventListener('mouseleave', () => { try { const s = getSettings(); if (s.buddySound) stopMuffledYell(); } catch(_) {} });
     shadow.getElementById('tmw-close').addEventListener('click', () => togglePanel(false));
     enableDockDrag();
     GM_registerMenuCommand('TMW: Open Settings', () => togglePanel(true));
@@ -485,6 +539,8 @@
     enforceBrand();
     applyDockIcon();
     applyDockShape();
+    if (!LOCK_BUDDY_ICON) bindCustomIconInputs();
+    try { maybeShowAudioHint(); } catch(_) {}
     try {
       const mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
       if (mq && mq.addEventListener) mq.addEventListener('change', applyDockIcon);
@@ -509,7 +565,9 @@
     try {
       const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
       const { dockIconLight, dockIconDark } = getSettings();
-      const dockIcon = prefersDark ? (dockIconDark || dockIconLight) : (dockIconLight || dockIconDark);
+      const userIcon = (typeof GM_getValue === 'function') ? (GM_getValue(STORAGE_KEYS.userIcon, '') || '') : '';
+      let dockIcon = prefersDark ? (dockIconDark || dockIconLight) : (dockIconLight || dockIconDark);
+      if (userIcon) dockIcon = userIcon; else if (CUSTOM_ICON_URL) dockIcon = CUSTOM_ICON_URL;
       const btn = ui.shadow.getElementById('tmw-dock-btn');
       const emoji = ui.shadow.getElementById('tmw-emoji');
       const img = ui.shadow.getElementById('tmw-icon-img');
@@ -534,6 +592,90 @@
     } catch(_) {}
   }
 
+  // Make the dock look irritated and hop around briefly
+  function irritateDock() {
+    try {
+      const btn = ui.shadow.getElementById('tmw-dock-btn');
+      const dock = ui.shadow.getElementById('tmw-dock');
+      if (!btn || !dock) return;
+      btn.classList.add('tmw-irritated');
+      setTimeout(() => { try { btn.classList.remove('tmw-irritated'); } catch(_) {} }, 650);
+      rageBounce(dock, 7, 28);
+    } catch(_) {}
+  }
+
+  // Quick hops by applying a temporary translate() on the dock container
+  function rageBounce(el, hops = 7, radius = 28) {
+    let i = 0; let canceled = false;
+    const origTransform = el.style.transform || 'translate(0,0)';
+    const doHop = () => {
+      if (canceled) return;
+      if (i++ >= hops) { el.style.transition = 'transform 140ms cubic-bezier(.2,.7,.2,1.2)'; el.style.transform = 'translate(0,0)'; return; }
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 10 + Math.random() * radius;
+      const x = Math.cos(angle) * dist;
+      const y = -Math.abs(Math.sin(angle) * dist);
+      el.style.transition = 'transform 140ms cubic-bezier(.2,.7,.2,1.2)';
+      el.style.transform = `translate(${x}px, ${y}px)`;
+      setTimeout(() => {
+        el.style.transform = 'translate(0,0)';
+        setTimeout(doHop, 80);
+      }, 140);
+    };
+    // If user starts dragging, cancel bounce
+    const onDown = () => { canceled = true; el.style.transform = origTransform; };
+    window.addEventListener('mousedown', onDown, { once: true });
+    doHop();
+  }
+
+  // Allow setting a custom icon by dropping/pasting/choosing an image
+  function bindCustomIconInputs() {
+    try {
+      const btn = ui.shadow.getElementById('tmw-dock-btn'); if (!btn) return;
+      const onDrop = (e) => {
+        e.preventDefault();
+        const f = (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) || null;
+        if (f && f.type && f.type.startsWith('image/')) { fileToDataUrl(f).then(setUserIcon).catch(()=>{}); }
+      };
+      const onDrag = (e) => { e.preventDefault(); };
+      btn.addEventListener('dragover', onDrag);
+      btn.addEventListener('drop', onDrop);
+      window.addEventListener('paste', (e) => {
+        const items = (e.clipboardData && e.clipboardData.items) || [];
+        for (const it of items) {
+          if (it.type && it.type.startsWith('image/')) {
+            const f = it.getAsFile(); if (f) { fileToDataUrl(f).then(setUserIcon).catch(()=>{}); }
+          }
+        }
+      });
+    } catch(_) {}
+  }
+
+  function openIconPicker() {
+    try {
+      const inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = 'image/*';
+      inp.addEventListener('change', () => { const f = inp.files && inp.files[0]; if (f) fileToDataUrl(f).then(setUserIcon).catch(()=>{}); });
+      inp.click();
+    } catch(_) {}
+  }
+
+  function setUserIcon(dataUrl) {
+    try { GM_setValue(STORAGE_KEYS.userIcon, dataUrl); applyDockIcon(); notify('Custom icon set'); } catch(_) {}
+  }
+
+  function clearUserIcon() {
+    try { GM_deleteValue(STORAGE_KEYS.userIcon); applyDockIcon(); notify('Custom icon cleared'); } catch(_) {}
+  }
+
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result||''));
+      fr.onerror = reject; fr.readAsDataURL(file);
+    });
+  }
+
   function applyDockShape() {
     try {
       const { dockShape } = getSettings();
@@ -556,8 +698,8 @@
   function enforceBrand() {
     try {
       const s = getSettings();
-      if (s.dockShape !== 'signature') {
-        setSettings({ ...s, dockShape: 'signature' });
+      if (s.dockShape !== 'circle') {
+        setSettings({ ...s, dockShape: 'circle' });
       }
     } catch(_) {}
   }
@@ -663,6 +805,7 @@
       const overLabel = (s.hideOverpriced ? '✓ ' : '') + (s.hideOverpriced ? 'Show overpriced' : 'Hide overpriced');
       const snoozeActive = s.snoozeUntil && Date.now() < s.snoozeUntil;
       const clearSnooze = snoozeActive ? '<div class="tmw-menu-item" data-act="snooze-clear">Clear snooze</div>' : '';
+      const iconControls = !LOCK_BUDDY_ICON ? '<div class="tmw-menu-item" data-act="icon-choose">Set custom icon…</div>\n        <div class="tmw-menu-item" data-act="icon-clear">Clear custom icon</div>' : '';
       menu.innerHTML = `
         <div class="tmw-menu-item" data-act="toggle-pause">${pausedLabel}</div>
         <div class="tmw-menu-item" data-act="snooze-5">Snooze 5m</div>
@@ -671,6 +814,7 @@
         ${clearSnooze}
         <div class="tmw-menu-item" data-act="toggle-deals">${dealsLabel}</div>
         <div class="tmw-menu-item" data-act="toggle-over">${overLabel}</div>
+        ${iconControls}
         <div class="tmw-menu-item" data-act="open-settings">Open settings</div>
         <div class="tmw-menu-item" data-act="extras">Extra settings…</div>
       `;
@@ -693,6 +837,8 @@
         else if (act === 'toggle-deals') { st.showOnlyDeals = !st.showOnlyDeals; setSettings(st); }
         else if (act === 'toggle-over') { st.hideOverpriced = !st.hideOverpriced; setSettings(st); }
         else if (act === 'open-settings') { togglePanel(true); }
+        else if (act === 'icon-choose') { if (!LOCK_BUDDY_ICON) openIconPicker(); }
+        else if (act === 'icon-clear') { if (!LOCK_BUDDY_ICON) clearUserIcon(); }
         else if (act === 'extras') { openExtraSettings(); }
         closeQuickMenu(); updateDockState(); scanDomSoon();
       });
@@ -738,12 +884,9 @@
           </div>
           <div class="tmw-row">
             <div>
-              <label>Quiet hours</label>
-              <div>
-                <input id="ex-quiet-start" type="number" min="0" max="23" value="${Number(getSettings().quiet?.start ?? 23)}" />
-                <span class="muted">to</span>
-                <input id="ex-quiet-end" type="number" min="0" max="23" value="${Number(getSettings().quiet?.end ?? 7)}" />
-              </div>
+              <label>Buddy cooldown (ms)</label>
+              <input id="ex-buddy-cooldown" type="number" min="0" max="2000" value="${Number(getSettings().buddyCooldownMs||DEFAULTS.buddyCooldownMs)}" />
+              <div class="muted">Delay before hover sound can restart.</div>
             </div>
             <div></div>
           </div>
@@ -760,13 +903,31 @@
           </div>
           <div class="tmw-row">
             <div>
+              <label><input id="ex-buddy-sound" type="checkbox" ${getSettings().buddySound ? 'checked' : ''}/> Buddy hover sound</label>
+              <div class="muted">Toggle the muffled yell when hovering the buddy.</div>
+            </div>
+            <div></div>
+          </div>
+          <div class="tmw-row">
+            <div>
+              <label>Buddy volume</label>
+              <div>
+                <input id="ex-buddy-volume" type="range" min="0" max="100" value="${Math.round((getSettings().buddyVolume!=null?getSettings().buddyVolume:(getSettings().volume!=null?getSettings().volume:DEFAULTS.volume))*100)}" />
+                <span class="muted" id="ex-buddy-volume-val">${Math.round((getSettings().buddyVolume!=null?getSettings().buddyVolume:(getSettings().volume!=null?getSettings().volume:DEFAULTS.volume))*100)}%</span>
+                <button class="secondary" id="ex-test-buddy-sound" style="margin-left:6px;">Test</button>
+              </div>
+            </div>
+            <div></div>
+          </div>
+          <div class="tmw-row">
+            <div>
               <label>API base</label>
               <input id="ex-api" type="text" value="${escapeHtml(getSettings().apiBase||'')}" />
             </div>
             <div>
               <label>Dock shape</label>
               <select id="ex-dock-shape" style="width:100%; padding:6px; border-radius:6px; border:1px solid #374151; background:#0b1220; color:#e5e7eb;" disabled>
-                <option value="signature" selected>Signature shield (fixed)</option>
+                <option value="circle" selected>Circle (fixed)</option>
               </select>
             </div>
           </div>
@@ -793,7 +954,7 @@
         const vv = modal.querySelector('#ex-volume-val');
         v.addEventListener('input', ()=>{ vv.textContent = `${v.value}%`; });
       } catch(_){}
-      // test sound button (ignores quiet hours)
+      // test sound button
       try {
         modal.querySelector('#ex-test-sound').addEventListener('click', ()=>{
           try {
@@ -805,6 +966,22 @@
             g.gain.value = level; o.connect(g); g.connect(ctx.destination);
             o.type = 'sine'; o.frequency.value = 880; o.start();
             setTimeout(()=>{ o.stop(); ctx.close(); }, 160);
+          } catch(_) {}
+        });
+      } catch(_){}
+      // Buddy volume label live update
+      try {
+        const vb = modal.querySelector('#ex-buddy-volume');
+        const vbl = modal.querySelector('#ex-buddy-volume-val');
+        vb.addEventListener('input', ()=>{ vbl.textContent = `${vb.value}%`; });
+      } catch(_){}
+      // Test buddy sound (preview)
+      try {
+        modal.querySelector('#ex-test-buddy-sound').addEventListener('click', ()=>{
+          try {
+            const vb = modal.querySelector('#ex-buddy-volume');
+            const level = Math.max(0, Math.min(1, Number(vb.value)/100));
+            buddyPreview(level);
           } catch(_) {}
         });
       } catch(_){}
@@ -831,10 +1008,11 @@
           const q = Number(modal.querySelector('#ex-queue').value)||1500;
           const base = String(modal.querySelector('#ex-api').value||API_BASE);
           const volPct = Math.max(0, Math.min(100, Number(modal.querySelector('#ex-volume').value)||Math.round((getSettings().volume||DEFAULTS.volume)*100)));
-          const qStart = Number(modal.querySelector('#ex-quiet-start').value)||0;
-          const qEnd = Number(modal.querySelector('#ex-quiet-end').value)||0;
+          const budPct = Math.max(0, Math.min(100, Number(modal.querySelector('#ex-buddy-volume').value)||Math.round((getSettings().buddyVolume!=null?getSettings().buddyVolume:(getSettings().volume||DEFAULTS.volume))*100)));
+          const buddySound = !!modal.querySelector('#ex-buddy-sound').checked;
           const dockShape = 'signature';
-          setSettings({ ...getSettings(), goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, queueIntervalMs: q, apiBase: base, volume: (volPct/100), quiet: { start: qStart, end: qEnd }, dockShape });
+          const buddyCooldownMs = Math.max(0, Math.min(2000, Number(modal.querySelector('#ex-buddy-cooldown').value)||DEFAULTS.buddyCooldownMs));
+          setSettings({ ...getSettings(), goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, queueIntervalMs: q, apiBase: base, volume: (volPct/100), buddyVolume: (budPct/100), buddySound, buddyCooldownMs, dockShape });
           try { applyDockShape(); } catch(_) {}
           notify('Extra settings saved.'); modal.remove(); scanDomSoon();
         } catch(_) { notify('Failed to save settings'); }
@@ -1291,7 +1469,62 @@
         scanDomSoon();
       }
       updateDockState();
+      try { runMonitorTick(); } catch(_) {}
     }, 1000);
+  }
+
+  // Background watchlist monitor using API (optional)
+  let __monBusy = false;
+  async function runMonitorTick() {
+    if (__monBusy) return;
+    const s = getSettings();
+    if (!s.monitorEnabled || s.paused) return;
+    const snoozed = s.snoozeUntil && Date.now() < s.snoozeUntil;
+    if (snoozed) return;
+    if (!getApiKey()) return;
+    const wl = getWatchlist(); const ids = Object.keys(wl);
+    if (!ids.length) return;
+    const st = getMonitorState();
+    const iv = Math.max(10, s.monitorIntervalSec||30)*1000;
+    // Find one due item to check this tick (single-flight)
+    let pick = null; let oldestAge = -1;
+    const nowTs = Date.now();
+    for (const id of ids) {
+      const last = st[id]?.ts || 0; const age = nowTs - last;
+      if (age >= iv && age > oldestAge) { oldestAge = age; pick = id; }
+    }
+    if (!pick) return;
+    __monBusy = true;
+    try {
+      const itemId = Number(pick);
+      const m = await fetchMarketMedian(itemId);
+      const next = { ...(st||{}) };
+      next[pick] = { ...(next[pick]||{}), min: m.min ?? m.median ?? null, ts: Date.now() };
+      setMonitorState(next);
+      // Compare to target and alert once per interval window
+      const target = Number(wl[pick]?.target || 0);
+      const min = next[pick].min;
+      if (min != null && target > 0 && min <= target) {
+        const mutedUntil = Number(getMutes()[pick]||0);
+        const muted = mutedUntil && Date.now() < mutedUntil;
+        const alertedTs = Number(next[pick]?.alertedTs||0);
+        const cool = 90*1000; // avoid spam
+        if (!muted && (!alertedTs || (Date.now()-alertedTs) > cool)) {
+          next[pick].alertedTs = Date.now(); setMonitorState(next);
+          const name = wl[pick]?.name || ('#'+pick);
+          notify(`Deal found: ${name} at ${fmtMoney(min)} (target ≤ ${fmtMoney(target)})`);
+          pushHit({ ts: Date.now(), itemId, name, price: min, target });
+          try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-pop'); setTimeout(()=>b.classList.remove('tmw-pop'), 650); } catch(_) {}
+          try { playHitSound(); } catch(_) {}
+          try { const c = ui.shadow.getElementById('tmw-count'); if (c && ui.panel && ui.panel.style.display!=='block') { c.textContent = String((Number(c.textContent||'0')||0)+1); c.style.display=''; } } catch(_) {}
+          try { if (s.openOnHit) togglePanel(true); } catch(_) {}
+        }
+      }
+    } catch(_) {
+      // ignore
+    } finally {
+      __monBusy = false;
+    }
   }
 
   function handlePotentialBuy(e) {
@@ -1441,10 +1674,7 @@
   function playHitSound() {
     const s = getSettings();
     if (!s.sounds) return;
-    const hr = new Date().getHours();
-    const q = s.quiet || { start: 23, end: 7 };
-    const withinQuiet = q.start < q.end ? (hr >= q.start && hr < q.end) : (hr >= q.start || hr < q.end);
-    if (withinQuiet) return;
+    // Quiet hours disabled: always allow hit sound when sounds are enabled
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const g = ctx.createGain();
@@ -1456,6 +1686,116 @@
       const o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = 659.25; o2.connect(g);
       setTimeout(()=>{ o2.start(); }, 110);
       setTimeout(()=>{ o2.stop(); ctx.close(); }, 280);
+    } catch(_) {}
+  }
+
+  // -------- Buddy hover: muffled yell sound (procedural, no assets) --------
+  let __yell = null; // { ctx, nodes:[], timer, startedAt }
+  let __yellCooldownUntil = 0;
+  function startMuffledYell() {
+    try {
+      if (__yell) return; // already playing
+      if (Date.now() < __yellCooldownUntil) return; // tiny cooldown
+      const s = getSettings();
+      const vol = Math.max(0, Math.min(1, Number(s.buddyVolume != null ? s.buddyVolume : (s.volume != null ? s.volume : DEFAULTS.volume))));
+      const Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return;
+      const ctx = new Ctx();
+      const out = ctx.createGain(); out.gain.value = vol * 0.6; out.connect(ctx.destination);
+      // Noise source
+      const bufferSize = 2 * ctx.sampleRate;
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.5;
+      const noise = ctx.createBufferSource(); noise.buffer = noiseBuffer; noise.loop = true;
+      // Filters to make it "muffled voice"
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = 0.7;
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 120; hp.Q.value = 0.7;
+      // Add a weak fundamental oscillator for pitchy mumble
+      const osc = ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 140; // low voice
+      const oscGain = ctx.createGain(); oscGain.gain.value = 0.07;
+      // Envelope
+      const g = ctx.createGain(); g.gain.value = 0.0;
+      noise.connect(lp); lp.connect(hp); hp.connect(g); osc.connect(oscGain); oscGain.connect(g); g.connect(out);
+      noise.start(); osc.start();
+      // Stuttered envelope bursts while hovered
+      const pulse = () => {
+        const t = ctx.currentTime;
+        g.gain.cancelScheduledValues(t);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.9, t + 0.04);
+        g.gain.exponentialRampToValueAtTime(0.25, t + 0.14);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+        // Slight randomize pitch and filter for naturalness
+        osc.frequency.setTargetAtTime(120 + Math.random()*60, t, 0.05);
+        lp.frequency.setTargetAtTime(800 + Math.random()*400, t, 0.05);
+      };
+      pulse();
+      const timer = setInterval(pulse, 260);
+      __yell = { ctx, nodes: [noise, osc, lp, hp, g, out, oscGain], timer, startedAt: Date.now() };
+    } catch(_) {}
+  }
+  function stopMuffledYell() {
+    try {
+      if (!__yell) return;
+      clearInterval(__yell.timer);
+      const ctx = __yell.ctx; const nodes = __yell.nodes || [];
+      // quick release
+      try { const g = nodes[4]; if (g && g.gain && ctx) { const t = ctx.currentTime; g.gain.cancelScheduledValues(t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05); } } catch(_) {}
+      setTimeout(()=>{
+        try { nodes.forEach(n => { try { n.stop && n.stop(); } catch(_) {} try { n.disconnect && n.disconnect(); } catch(_) {} }); } catch(_) {}
+        try { ctx.close(); } catch(_) {}
+      }, 90);
+      __yell = null;
+      try { __yellCooldownUntil = Date.now() + (getSettings().buddyCooldownMs || DEFAULTS.buddyCooldownMs || 220); } catch(_) { __yellCooldownUntil = Date.now() + 220; }
+    } catch(_) {}
+  }
+
+  function maybeShowAudioHint() {
+    try {
+      if (!getSettings().buddySound) return;
+      if (GM_getValue(STORAGE_KEYS.buddyHint, 0)) return;
+      const rootRect = ui.dock.getBoundingClientRect();
+      const hint = document.createElement('div');
+      hint.className = 'tmw-hint';
+      hint.textContent = 'Tip: Hover buddy for a muffled yell. Click once if your browser asks to enable audio.';
+      ui.shadow.appendChild(hint);
+      const x = rootRect.left - 8;
+      const y = Math.max(0, rootRect.top - 42);
+      hint.style.left = `${x}px`;
+      hint.style.top = `${y}px`;
+      requestAnimationFrame(()=>hint.classList.add('show'));
+      const close = () => { try { hint.remove(); } catch(_) {} GM_setValue(STORAGE_KEYS.buddyHint, 1); };
+      setTimeout(close, 3800);
+      hint.addEventListener('click', close);
+    } catch(_) {}
+  }
+
+  function buddyPreview(level) {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return;
+      const ctx = new Ctx();
+      const out = ctx.createGain(); out.gain.value = Math.max(0, Math.min(1, level)) * 0.6; out.connect(ctx.destination);
+      const bufferSize = 2 * ctx.sampleRate;
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.5;
+      const noise = ctx.createBufferSource(); noise.buffer = noiseBuffer; noise.loop = true;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = 0.7;
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 120; hp.Q.value = 0.7;
+      const osc = ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 140;
+      const oscGain = ctx.createGain(); oscGain.gain.value = 0.07;
+      const g = ctx.createGain(); g.gain.value = 0.0;
+      noise.connect(lp); lp.connect(hp); hp.connect(g); osc.connect(oscGain); oscGain.connect(g); g.connect(out);
+      noise.start(); osc.start();
+      const t = ctx.currentTime;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.9, t + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.25, t + 0.14);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+      setTimeout(()=>{
+        try { noise.stop(); osc.stop(); } catch(_) {}
+        try { ctx.close(); } catch(_) {}
+      }, 320);
     } catch(_) {}
   }
 
