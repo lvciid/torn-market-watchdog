@@ -7,8 +7,7 @@ A Tampermonkey userscript that highlights deals, warns on ripoffs, and alerts wa
 1) Install a userscript manager (Tampermonkey or Violentmonkey).
 2) Install from GitHub Pages (auto‑update ready):
 
-   https://lvciid.github.io/torn-market-watchdog/torn-market-watchdog.user.js
-
+[https://lvciid.github.io/torn-market-watchdog/torn-market-watchdog.user.js]
 3) Open torn.com. A dock button appears (bottom‑right). Click it to open settings and paste your Torn API key (Limited Access recommended).
 
 Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@version` increases.
