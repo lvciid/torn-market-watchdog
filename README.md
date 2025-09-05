@@ -65,6 +65,23 @@ Tip: In Tampermonkey, the script auto‑updates from the URL above. Updates appl
 - Bump the `@version` in the userscript header to trigger quicker updates.
 - Keep changes minimal and TOS‑friendly (no automation, conservative API usage).
 
+### Auto‑bump version on commit
+
+This repo includes a simple script and an optional git hook to bump the userscript version automatically so Tampermonkey sees updates:
+
+- Hook setup (once per clone):
+
+  git config core.hooksPath .githooks
+
+- The pre‑commit hook bumps patch version (`X.Y.Z -> X.Y.(Z+1)`) and stages the change.
+- You can also bump manually:
+
+  - Patch: `scripts/bump_version.sh`
+  - Minor: `scripts/bump_version.sh minor`
+  - Major: `scripts/bump_version.sh major`
+  - Set explicit: `scripts/bump_version.sh set 1.2.3`
+
+
 ## License
 
 MIT

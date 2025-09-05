@@ -4,7 +4,8 @@
 // @version      0.3.1
 // @description  Highlights deals, warns on ripoffs, and alerts watchlist items using live Torn API data. Your API key stays local and never exposed.
 // @author       lvciid
-// @match        https://www.torn.com/*
+// @match        *://*.torn.com/*
+// @match        https://torn.com/*
 // @run-at       document-idle
 // @noframes
 // @homepageURL  https://github.com/lvciid/torn-market-watchdog
@@ -1087,8 +1088,7 @@
           try { playHitSound(); } catch(_) {}
         }
 
-        // filtering
-        const s2 = getSettings();
+        // filtering (reuse s2 from above)
         if (s2.showOnlyDeals && !isGood && !(watched && info.price <= watched.target)) {
           info.row.style.display = 'none';
         } else if (s2.hideOverpriced && isBad) {

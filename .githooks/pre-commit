@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Auto-bump patch version in the userscript on every commit
+scripts/bump_version.sh patch >/dev/null || true
+
+# Keep hook quiet and non-blocking even if script not present
+exit 0
+
