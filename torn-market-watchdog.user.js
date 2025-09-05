@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Market Watchdog
 // @namespace    https://github.com/lvciid/torn-market-watchdog
-// @version      0.3.0
+// @version      0.3.1
 // @description  Highlights deals, warns on ripoffs, and alerts watchlist items using live Torn API data. Your API key stays local and never exposed.
 // @author       lvciid
 // @match        https://www.torn.com/*
