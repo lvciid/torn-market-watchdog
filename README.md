@@ -8,7 +8,7 @@ A Tampermonkey userscript that highlights deals, warns on ripoffs, and alerts wa
 
 2) Install the script from the raw URL:
 
-   https://raw.githubusercontent.com/lvciid/torn-market-watchdog/main/torn-market-watchdog.user.js
+   https://lvciid.github.io/torn-market-watchdog/torn-market-watchdog.user.js
 
 3) Open torn.com. A small 🐶 dock button appears (bottom‑right). Click it to open settings and paste your Torn API key (Limited Access recommended).
 
