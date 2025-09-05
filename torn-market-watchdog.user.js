@@ -31,14 +31,15 @@
   // -----------------------
   const API_BASE = 'https://api.torn.com';
   // Default dock icons as inline SVG data URIs
-  const DOCK_ICON_DEFAULT_LIGHT = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f8fafc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 7c2.6-4 9-4 11 0 1.8 3.6-1.2 5-4.5 6.3-2.2.9-3.5 1.7-3.5 3.2 0 2.2 3.2 3.3 5.5 1.5'/></svg>";
-  const DOCK_ICON_DEFAULT_DARK = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230e1a2b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 7c2.6-4 9-4 11 0 1.8 3.6-1.2 5-4.5 6.3-2.2.9-3.5 1.7-3.5 3.2 0 2.2 3.2 3.3 5.5 1.5'/></svg>";
+  // Fancy "L" monogram (curved foot) — light/dark variants
+  const DOCK_ICON_DEFAULT_LIGHT = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f8fafc' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M8 3v12q0 3 3 3h6' /><path d='M17 18c-2 .8-3.8 1-6 .9' opacity='.6'/></svg>";
+  const DOCK_ICON_DEFAULT_DARK = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230e1a2b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M8 3v12q0 3 3 3h6' /><path d='M17 18c-2 .8-3.8 1-6 .9' opacity='.6'/></svg>";
   const STORAGE_KEYS = {
     apiKey: 'tmw_api_key',
     items: 'tmw_items_dict', // { ts: number, itemsById: {...}, idByName: {...} }
     marketCache: 'tmw_market_cache', // { [itemId]: { ts: number, median: number, min: number, sample: number } }
     watchlist: 'tmw_watchlist', // { [itemId]: { name: string, target: number } }
-    settings: 'tmw_settings', // { goodThreshold, overpriceMultiplier, refreshSeconds, apiBase, dockIconLight, dockIconDark, minimal, colorblind, showOnlyDeals, hideOverpriced, alwaysConfirm, disableOverConfirm, sounds, quiet }
+    settings: 'tmw_settings', // { goodThreshold, overpriceMultiplier, refreshSeconds, apiBase, dockIconLight, dockIconDark, minimal, colorblind, showOnlyDeals, hideOverpriced, alwaysConfirm, disableOverConfirm, sounds, quiet, compactBadges, badgePosition, openOnHit, snoozeUntil }
     ui: 'tmw_ui_state', // { dock:{x:number,y:number}, open:boolean }
   };
 
@@ -57,6 +58,10 @@
     disableOverConfirm: false,
     sounds: true,
     quiet: { start: 23, end: 7 }, // quiet hours local time (23:00-07:00)
+    compactBadges: false,
+    badgePosition: 'name', // or 'price'
+    openOnHit: false,
+    snoozeUntil: 0,
   };
 
   // -----------------------
@@ -83,6 +88,10 @@
       disableOverConfirm: s.disableOverConfirm != null ? !!s.disableOverConfirm : DEFAULTS.disableOverConfirm,
       sounds: s.sounds != null ? !!s.sounds : DEFAULTS.sounds,
       quiet: s.quiet || DEFAULTS.quiet,
+      compactBadges: s.compactBadges != null ? !!s.compactBadges : DEFAULTS.compactBadges,
+      badgePosition: s.badgePosition || DEFAULTS.badgePosition,
+      openOnHit: s.openOnHit != null ? !!s.openOnHit : DEFAULTS.openOnHit,
+      snoozeUntil: Number(s.snoozeUntil || 0),
     };
   }
 
@@ -276,13 +285,14 @@
         .dock-btn:hover { filter: brightness(1.05); transform: translateY(-1px); }
         .dock-btn::after { content:""; position:absolute; inset:-2px; border-radius:50%; background: radial-gradient(closest-side, rgba(93,155,255,.5), transparent); opacity:.0; transition: opacity .3s ease; }
         .dock-btn:hover::after { opacity:.7; }
-        .dot { position:absolute; top:4px; right:4px; width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 6px rgba(16,185,129,.8); display:none; }
+    .dot { position:absolute; top:4px; right:4px; width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 6px rgba(16,185,129,.8); display:none; }
         .dot.show { display:block; }
-        .panel { position:fixed; bottom:54px; right:0; width:340px; background:#111827; color:#e5e7eb; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.45); border:1px solid #1f2937; display:none; }
+        .panel { position:fixed; bottom:54px; right:0; width:340px; max-height:70vh; background:#111827; color:#e5e7eb; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.45); border:1px solid #1f2937; display:none; overflow:hidden; }
         .hdr { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #1f2937; }
-        .ttl { font-weight:700; font-size:14px; letter-spacing:.2px; }
+        .ttl { font-weight:700; font-size:14px; letter-spacing:.2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .xbtn { background:none; border:none; color:#9ca3af; font-size:18px; cursor:pointer; }
-        .cnt { padding:12px; }
+        .cnt { padding:12px; overflow-y:auto; max-height: calc(70vh - 48px); overscroll-behavior: contain; }
+        .brand { font-family: ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif; font-style: italic; font-weight:600; opacity:.85; }
         label { display:block; font-size:12px; margin:6px 0 2px; color:#9ca3af; }
         input[type="text"], input[type="number"], input[type="password"] { width:100%; padding:8px; border-radius:8px; border:1px solid #374151; background:#0b1220; color:#e5e7eb; }
         .inline { display:flex; gap:8px; align-items:center; }
@@ -296,13 +306,18 @@
         .list { margin-top:8px; max-height:160px; overflow:auto; border:1px solid #1f2937; border-radius:8px; }
         .item { display:flex; align-items:center; justify-content:space-between; padding:8px 10px; border-bottom:1px solid #1f2937; font-size:12px; }
         .item:last-child { border-bottom:none; }
+        .statusbar { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 8px; }
+        .pill { display:inline-block; padding:2px 6px; border-radius:999px; font-size:11px; background:#1f2937; color:#e5e7eb; border:1px solid #374151; }
+        .pill.green{ background:#0f5132; border-color:#0f5132; color:#d1fae5; }
+        .pill.amber{ background:#7c4a03; border-color:#7c4a03; color:#ffedd5; }
+        .pill.blue{ background:#0b3b83; border-color:#0b3b83; color:#dbeafe; }
       </style>
       <div class="dock" id="tmw-dock">
         <button class="dock-btn" id="tmw-dock-btn" title="Open Torn Market Watchdog"><span id="tmw-emoji">🐶</span><img id="tmw-icon-img" class="icon-preview" style="display:none" alt="icon"/><span class="dot" id="tmw-dot"></span></button>
       </div>
       <div class="panel" id="tmw-panel">
         <div class="hdr">
-          <div class="ttl">Torn Market Watchdog <span style="font-family:cursive; font-weight:600; opacity:.8">lvciid</span></div>
+          <div class="ttl"><span class="brand">lvciid's</span> Torn Market Watchdog</div>
           <button class="xbtn" id="tmw-close">×</button>
         </div>
         <div class="cnt" id="tmw-cnt"></div>
@@ -312,7 +327,8 @@
     ui.dock = shadow.getElementById('tmw-dock');
     ui.panel = shadow.getElementById('tmw-panel');
     const btn = shadow.getElementById('tmw-dock-btn');
-    btn.addEventListener('click', () => togglePanel(true));
+    btn.addEventListener('click', () => togglePanel(ui.panel.style.display !== 'block'));
+    btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openDockMenu(e); });
     shadow.getElementById('tmw-close').addEventListener('click', () => togglePanel(false));
     enableDockDrag();
     GM_registerMenuCommand('TMW: Open Settings', () => togglePanel(true));
@@ -323,6 +339,20 @@
       if (mq && mq.addEventListener) mq.addEventListener('change', applyDockIcon);
       else if (mq && mq.addListener) mq.addListener(applyDockIcon);
     } catch(_) {}
+    // Keyboard shortcuts
+    window.addEventListener('keydown', (ev) => {
+      if (ev.altKey && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey && (ev.key === 'w' || ev.key === 'W')) {
+        ev.preventDefault(); togglePanel(ui.panel.style.display !== 'block');
+      } else if (ev.key === 'Escape' && ui.panel.style.display === 'block') {
+        togglePanel(false);
+      } else if (ev.altKey && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey && (ev.key === 'd' || ev.key === 'D')) {
+        const s = getSettings(); s.showOnlyDeals = !s.showOnlyDeals; setSettings(s); notify('Toggled deals-only filter'); scanDomSoon();
+      } else if (ev.altKey && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey && (ev.key === 'o' || ev.key === 'O')) {
+        const s = getSettings(); s.hideOverpriced = !s.hideOverpriced; setSettings(s); notify('Toggled hide-overpriced'); scanDomSoon();
+      } else if (ev.altKey && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey && (ev.key === 'p' || ev.key === 'P')) {
+        const s = getSettings(); s.paused = !s.paused; setSettings(s); notify(s.paused?'Paused':'Resumed');
+      }
+    });
   }
 
   function applyDockIcon() {
@@ -357,12 +387,19 @@
       const dot = ui.shadow.getElementById('tmw-dot');
       const s = getSettings();
       const cooling = (typeof net !== 'undefined') && net.pausedUntil && Date.now() < net.pausedUntil;
+      const snoozed = s.snoozeUntil && Date.now() < s.snoozeUntil;
       dot.classList.remove('show');
       if (s.paused) {
         dot.style.background = '#ef4444'; // red
         dot.style.boxShadow = '0 0 6px rgba(239,68,68,.8)';
         dot.classList.add('show');
         ui.shadow.getElementById('tmw-dock-btn').title = 'Watchdog paused — click to open';
+      } else if (snoozed) {
+        dot.style.background = '#3b82f6'; // blue
+        dot.style.boxShadow = '0 0 6px rgba(59,130,246,.8)';
+        dot.classList.add('show');
+        const left = Math.max(0, Math.round((s.snoozeUntil - Date.now())/60000));
+        ui.shadow.getElementById('tmw-dock-btn').title = `Snoozed ~${left}m — right-click for options`;
       } else if (cooling) {
         dot.style.background = '#f59e0b'; // amber
         dot.style.boxShadow = '0 0 6px rgba(245,158,11,.8)';
@@ -374,12 +411,64 @@
     } catch (_) {}
   }
 
+  function openDockMenu(ev) {
+    try {
+      closeQuickMenu();
+      const menu = document.createElement('div');
+      menu.className = 'tmw-menu';
+      const s = getSettings();
+      const pausedLabel = s.paused ? 'Resume' : 'Pause';
+      const dealsLabel = (s.showOnlyDeals ? '✓ ' : '') + (s.showOnlyDeals ? 'Show all' : 'Show deals only');
+      const overLabel = (s.hideOverpriced ? '✓ ' : '') + (s.hideOverpriced ? 'Show overpriced' : 'Hide overpriced');
+      const snoozeActive = s.snoozeUntil && Date.now() < s.snoozeUntil;
+      const clearSnooze = snoozeActive ? '<div class="tmw-menu-item" data-act="snooze-clear">Clear snooze</div>' : '';
+      menu.innerHTML = `
+        <div class="tmw-menu-item" data-act="toggle-pause">${pausedLabel}</div>
+        <div class="tmw-menu-item" data-act="snooze-5">Snooze 5m</div>
+        <div class="tmw-menu-item" data-act="snooze-15">Snooze 15m</div>
+        <div class="tmw-menu-item" data-act="snooze-30">Snooze 30m</div>
+        ${clearSnooze}
+        <div class="tmw-menu-item" data-act="toggle-deals">${dealsLabel}</div>
+        <div class="tmw-menu-item" data-act="toggle-over">${overLabel}</div>
+        <div class="tmw-menu-item" data-act="open-settings">Open settings</div>
+      `;
+      document.body.appendChild(menu);
+      const x = (ev.clientX || 0) + window.scrollX;
+      const y = (ev.clientY || 0) + window.scrollY;
+      menu.style.left = `${Math.min(x, window.scrollX + window.innerWidth - 196)}px`;
+      menu.style.top = `${Math.min(y, window.scrollY + window.innerHeight - 160)}px`;
+      tmwActiveMenu = menu;
+      const onDoc = (e2) => { if (!menu.contains(e2.target)) { closeQuickMenu(); document.removeEventListener('mousedown', onDoc, true); } };
+      document.addEventListener('mousedown', onDoc, true);
+      menu.addEventListener('click', (e3) => {
+        const act = e3.target.getAttribute('data-act'); if (!act) return;
+        const st = getSettings();
+        if (act === 'toggle-pause') { st.paused = !st.paused; setSettings(st); notify(st.paused?'Paused':'Resumed'); }
+        else if (act === 'snooze-5') { st.snoozeUntil = Date.now() + 5*60*1000; setSettings(st); notify('Snoozed 5m'); }
+        else if (act === 'snooze-15') { st.snoozeUntil = Date.now() + 15*60*1000; setSettings(st); notify('Snoozed 15m'); }
+        else if (act === 'snooze-30') { st.snoozeUntil = Date.now() + 30*60*1000; setSettings(st); notify('Snoozed 30m'); }
+        else if (act === 'snooze-clear') { st.snoozeUntil = 0; setSettings(st); notify('Snooze cleared'); }
+        else if (act === 'toggle-deals') { st.showOnlyDeals = !st.showOnlyDeals; setSettings(st); }
+        else if (act === 'toggle-over') { st.hideOverpriced = !st.hideOverpriced; setSettings(st); }
+        else if (act === 'open-settings') { togglePanel(true); }
+        closeQuickMenu(); updateDockState(); scanDomSoon();
+      });
+    } catch(_) {}
+  }
+
   function togglePanel(open) {
     if (!ui.panel) return;
-    const state = GM_getValue(STORAGE_KEYS.ui, { dock: null, open: false });
+    const state = GM_getValue(STORAGE_KEYS.ui, { dock: null, open: false, scrollTop: 0 });
+    if (!open) {
+      try { const cnt = ui.shadow.getElementById('tmw-cnt'); if (cnt) state.scrollTop = cnt.scrollTop || 0; } catch(_) {}
+    }
     ui.panel.style.display = open ? 'block' : 'none';
     state.open = !!open; GM_setValue(STORAGE_KEYS.ui, state);
-    if (open) renderSettingsPanel();
+    if (open) {
+      renderSettingsPanel();
+      try { const st = GM_getValue(STORAGE_KEYS.ui, { scrollTop: 0 }).scrollTop || 0; requestAnimationFrame(()=>{ const cnt = ui.shadow.getElementById('tmw-cnt'); if (cnt) cnt.scrollTop = st; }); } catch(_) {}
+    }
+    try { const b = ui.shadow.getElementById('tmw-dock-btn'); if (b) b.setAttribute('aria-expanded', open ? 'true' : 'false'); } catch(_) {}
   }
 
   function enableDockDrag() {
@@ -430,8 +519,18 @@
     const cnt = ui.shadow.getElementById('tmw-cnt');
     const s = getSettings();
     const hasKey = !!getApiKey();
+    const nowMs = Date.now();
+    const snoozeLeft = s.snoozeUntil && nowMs < s.snoozeUntil ? Math.max(0, Math.round((s.snoozeUntil - nowMs)/60000)) : 0;
     cnt.innerHTML = `
       <div>
+        <div class="statusbar">
+          <span class="pill ${s.paused?'amber':''}">${s.paused?'Paused':'Active'}</span>
+          ${snoozeLeft?`<span class=\"pill blue\">Snoozed ~${snoozeLeft}m</span>`:''}
+          ${s.showOnlyDeals?`<span class=\"pill green\">Deals only</span>`:''}
+          ${s.hideOverpriced?`<span class=\"pill amber\">Hide overpriced</span>`:''}
+          ${s.minimal?`<span class=\"pill\">Minimal</span>`:''}
+          ${s.colorblind?`<span class=\"pill\">CB palette</span>`:''}
+        </div>
         <label>API Key (Limited Access)</label>
         <div class="row">
           <input id="tmw-api-key" type="password" placeholder="${hasKey ? 'Key is set — enter to replace' : 'Enter your Torn API key'}" />
@@ -473,6 +572,16 @@
           <div class="actions"><button id="tmw-clear-cache" class="secondary">Clear Market Cache</button></div>
         </div>
         <div class="row">
+          <label><input type="checkbox" id="tmw-compact" ${s.compactBadges ? 'checked' : ''}/> Compact badges</label>
+          <div>
+            <label>Badge position</label>
+            <select id="tmw-badge-pos" style="width:100%; padding:6px; border-radius:6px; border:1px solid #374151; background:#0b1220; color:#e5e7eb;">
+              <option value="name" ${s.badgePosition==='name'?'selected':''}>After name</option>
+              <option value="price" ${s.badgePosition==='price'?'selected':''}>Next to price</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
           <label><input type="checkbox" id="tmw-always-confirm" ${s.alwaysConfirm ? 'checked' : ''}/> Always confirm before buy</label>
           <label><input type="checkbox" id="tmw-disable-overconfirm" ${s.disableOverConfirm ? 'checked' : ''}/> Disable overpriced confirm</label>
           <div class="actions"><button id="tmw-reset-all" class="secondary">Reset to Defaults</button></div>
@@ -486,6 +595,13 @@
               <input id="tmw-quiet-start" type="number" min="0" max="23" value="${Number(s.quiet?.start ?? 23)}" />
               <span class="muted">to</span>
               <input id="tmw-quiet-end" type="number" min="0" max="23" value="${Number(s.quiet?.end ?? 7)}" />
+            </div>
+            <label class="inline"><input type="checkbox" id="tmw-open-hit" ${s.openOnHit ? 'checked' : ''}/> Open panel on watchlist hit</label>
+            <div class="inline">
+              <span class="muted">Snooze:</span>
+              <button class="secondary" id="tmw-snooze-5">5m</button>
+              <button class="secondary" id="tmw-snooze-15">15m</button>
+              <button class="secondary" id="tmw-snooze-30">30m</button>
             </div>
           </div>
           <div class="actions"><button id="tmw-diagnostics" class="secondary">Copy diagnostics</button></div>
@@ -580,11 +696,14 @@
       const colorblind = !!ui.shadow.getElementById('tmw-colorblind').checked;
       const showOnlyDeals = !!ui.shadow.getElementById('tmw-show-deals').checked;
       const hideOverpriced = !!ui.shadow.getElementById('tmw-hide-over').checked;
+      const compactBadges = !!ui.shadow.getElementById('tmw-compact').checked;
+      const badgePosition = String(ui.shadow.getElementById('tmw-badge-pos').value || 'name');
       const alwaysConfirm = !!ui.shadow.getElementById('tmw-always-confirm').checked;
       const disableOverConfirm = !!ui.shadow.getElementById('tmw-disable-overconfirm').checked;
       const sounds = !!ui.shadow.getElementById('tmw-sounds').checked;
+      const openOnHit = !!ui.shadow.getElementById('tmw-open-hit').checked;
       const quiet = { start: Number(ui.shadow.getElementById('tmw-quiet-start').value)||0, end: Number(ui.shadow.getElementById('tmw-quiet-end').value)||0 };
-      setSettings({ goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, apiBase: base, dockIconLight, dockIconDark, minimal, colorblind, showOnlyDeals, hideOverpriced, alwaysConfirm, disableOverConfirm, sounds, quiet });
+      setSettings({ goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, apiBase: base, dockIconLight, dockIconDark, minimal, colorblind, showOnlyDeals, hideOverpriced, compactBadges, badgePosition, alwaysConfirm, disableOverConfirm, sounds, quiet, openOnHit, snoozeUntil: getSettings().snoozeUntil });
       applyDockIcon();
       notify('Watchdog settings saved.');
     };
@@ -612,6 +731,12 @@
       const txt = JSON.stringify(diag, null, 2);
       try { navigator.clipboard.writeText(txt).then(() => notify('Diagnostics copied.')); } catch(_) { notify('Copy failed.'); }
     };
+
+    // Snooze buttons
+    const snooze = (min) => { const s3 = getSettings(); s3.snoozeUntil = Date.now() + min*60*1000; setSettings(s3); notify(`Snoozed for ${min} minutes`); };
+    ui.shadow.getElementById('tmw-snooze-5').onclick = () => snooze(5);
+    ui.shadow.getElementById('tmw-snooze-15').onclick = () => snooze(15);
+    ui.shadow.getElementById('tmw-snooze-30').onclick = () => snooze(30);
 
     ui.shadow.getElementById('tmw-add-watch').onclick = async () => {
       const name = ui.shadow.getElementById('tmw-watch-name').value.trim();
@@ -909,20 +1034,33 @@
     let fairBlock = document.createElement('span');
     fairBlock.className = 'tmw-badge';
     fairBlock.textContent = '…fetching';
-    // Try to attach next to price element or name
-    const anchor = info.row.querySelector('a[href*="item.php?XID="]') || info.row.querySelector('b, strong, .name');
-    if (anchor && anchor.parentElement) {
-      anchor.parentElement.insertBefore(fairBlock, anchor.nextSibling);
-    } else {
-      info.row.appendChild(fairBlock);
-    }
+    // Attach badge near name or price based on setting
+    try {
+      const s0 = getSettings();
+      let anchor = null;
+      if (s0.badgePosition === 'price') {
+        anchor = Array.from(info.row.querySelectorAll('span, div, b, strong, td')).find((n) => /\$\s?\d[\d,]*/.test(n.textContent || ''));
+      }
+      if (!anchor) {
+        anchor = info.row.querySelector('a[href*="item.php?XID="]') || info.row.querySelector('b, strong, .name');
+      }
+      if (anchor && anchor.parentElement) {
+        anchor.parentElement.insertBefore(fairBlock, anchor.nextSibling);
+      } else {
+        info.row.appendChild(fairBlock);
+      }
+    } catch(_) { info.row.appendChild(fairBlock); }
 
     try {
       const fv = await getFairValue(info.itemId, itemsDict);
       const fair = fv?.median || fv?.min || null;
       const s = getSettings();
       if (fair) {
-        const badgeTxt = `median ${fmtMoney(fair)}${fv?.sample ? ` • n=${fv.sample}` : ''}`;
+        const s2 = getSettings();
+        const fairStr = s2.compactBadges ? fmtMoneyCompact(fair) : fmtMoney(fair);
+        const labelName = s2.compactBadges ? 'med' : 'median';
+        const countStr = fv?.sample ? ` • n=${fv.sample}` : '';
+        const badgeTxt = `${labelName} ${fairStr}${countStr}`;
         // classify
         const isGood = info.price <= fair * s.goodThreshold;
         const isBad = info.price >= fair * s.overpriceMultiplier;
@@ -968,6 +1106,8 @@
   async function scanDom() {
     ensureUiShell();
     if (document.hidden) return;
+    const settingsScan = getSettings();
+    if (settingsScan.snoozeUntil && Date.now() < settingsScan.snoozeUntil) return;
     if (!getApiKey()) showKeyBanner();
     // Collect potential rows from visible page
     // Broad net: find containers with an item link to item.php?XID and some $ price
