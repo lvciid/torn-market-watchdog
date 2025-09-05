@@ -23,15 +23,14 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 - Live pricing: Listings via Torn API; medians cached 60s.
 - Highlights: “deal/over” labels; tooltips show median/min/sample and last updated.
 - Scam shield: Confirm on overpriced; optional “always confirm before buy” or disable our confirm.
-- Watchlist: Alerts and highlights when a listing price drops at or below your target; optional beep with quiet hours and volume control; can auto‑open panel on hit.
+- Watchlist: Alerts and highlights when a listing price drops at or below your target; optional two‑tone chime with quiet hours and volume control; can auto‑open panel on hit.
 - Overrides: Per‑item thresholds; ignore items.
 - Filters: “Show deals only”, “Hide overpriced”.
 - Color/UX: Colorblind palette; Minimal (badge‑only) mode; compact money; badge position (by name/price).
 - Quick actions: Small “⋯” next to badge → Watch, Ignore, Override, Clear, Mute 1h.
-- Dock UX: Click toggles panel; status dot shows paused (red), cooling (amber), snoozed (blue). Radial right‑click menu around the dock for pause/snooze/filters/settings; Extra settings open in a compact modal.
+- Dock UX: Click toggles panel; status dot shows paused (red), cooling (amber), snoozed (blue). Right‑click the dock for a radial menu (pause, snooze, filters, settings). Extra settings open in a compact modal.
 - Radial menu legend: D = toggle “Deals only”, O = toggle “Hide overpriced”. A checkmark (✓) appears when the filter is active.
-- Deluxe dock: Choose Circle, Price tag, or Signature shield (your calling card). Signature adds branded gradients, a soft aura, and adaptive state colors (active, paused, snoozed, cooling). The hit sound is a short two‑tone chime.
-  - Signature shield includes an animated LV monogram (stroke-draw effect). On watch hits the monogram redraws for a subtle “signature” moment.
+- Signature dock: Fixed “Signature shield” button (creator’s calling card) with an LV cutout and an always‑on animated lightning monogram. State‑aware gradients (active/paused/snoozed/cooling) with a soft aura on active. The hit sound is a short two‑tone chime.
 - Progress ring: shows time to next monitor tick. Badge count shows new hits.
 - Shortcuts: Alt+W (panel), Alt+D (deals), Alt+O (hide overpriced), Alt+P (pause).
 - Icons: Built‑in light/dark LV emblem, auto theme switch. Emblem is fixed in the script (not user‑configurable).
@@ -42,14 +41,22 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 - API key: Stored locally; never shared.
 - Thresholds: Deal threshold, Overprice multiplier.
 - Auto‑refresh & Queue: Re‑scan cadence and API pacing.
-- Routes: Enable/disable on Item Market, Bazaars, Points.
-- Filters: Deals only / Hide overpriced.
+- Filters: Use the radial menu (right‑click dock) for Deals only (D) and Hide overpriced (O).
 - Safety: Always confirm; Disable overpriced confirm.
 - Appearance: Minimal mode; Colorblind palette; Badge position; Compact badges.
 - Watchlist & Overrides: Add target price; per‑item thresholds; ignore item.
-- Notifications: Sound on hit (when price ≤ your watchlist target). Quiet hours and Open panel on hit. Volume control lives in Extra settings (right‑click the dock → Extra settings…).
+- Notifications: Two‑tone chime on hit (only when price ≤ your watchlist target). Quiet hours and Open panel on hit. Volume control + Test live in Extra settings (right‑click the dock → Extra settings…).
 - Snooze: Pause scanning for 5/15/30m from the radial dock menu; clear snooze. Progress ring shows time to next monitor check.
-- Dock icons: Emblem is set by the script owner in code and is not user‑configurable.
+- Branding: The dock uses a fixed “Signature shield” with an LV monogram (the creator’s calling card). This is intentional and not user‑configurable.
+
+### Extra Settings (right‑click dock → Extra settings…)
+- Deal threshold, Overprice multiplier
+- Auto‑refresh (seconds), Queue spacing (ms)
+- Quiet hours (start/end)
+- Volume slider with Test button
+- API base
+- Clear Market Cache, Reset to Defaults
+- Safety: Always confirm before buy; Disable overpriced confirm
 
 ## Compatibility
 
@@ -71,7 +78,7 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 ## Troubleshooting
 
 - No UI: ensure the script is enabled on torn.com and `@match` includes `*://*.torn.com/*`; hard‑refresh the page.
-- No update in Tampermonkey: installed script must use the Pages URL; bump `@version` (auto‑bumped on commit) and Check for updates.
+- No update in Tampermonkey: the script uses a separate meta file for updates. Ensure Tampermonkey is using the Pages URL; bump `@version` and use “Check for updates”. CDN propagation can take 1–2 minutes.
 - “Access not allowed by @connect”: reset API base to `https://api.torn.com` or add the host to `@connect`.
 - Cooling down: after repeated failures or 429, the queue cools down (~2 minutes). It resumes automatically.
 

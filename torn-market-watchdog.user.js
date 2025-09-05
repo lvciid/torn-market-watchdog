@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Market Watchdog
 // @namespace    https://github.com/lvciid/torn-market-watchdog
-// @version      0.3.9
+// @version      0.3.11
 // @description  Highlights deals, warns on ripoffs, and alerts watchlist items using live Torn API data. Your API key stays local and never exposed.
 // @author       lvciid
 // @match        *://*.torn.com/*
@@ -11,7 +11,7 @@
 // @homepageURL  https://github.com/lvciid/torn-market-watchdog
 // @supportURL   https://github.com/lvciid/torn-market-watchdog/issues
 // @downloadURL  https://lvciid.github.io/torn-market-watchdog/torn-market-watchdog.user.js
-// @updateURL    https://lvciid.github.io/torn-market-watchdog/torn-market-watchdog.user.js
+// @updateURL    https://lvciid.github.io/torn-market-watchdog/torn-market-watchdog.user.meta.js
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
@@ -58,7 +58,7 @@
     itemsTtlMs: 24 * 60 * 60 * 1000, // 24h
     marketTtlMs: 60 * 1000, // 60s
     minimal: false,
-    dockShape: 'circle', // 'circle' | 'tag' | 'signature'
+    dockShape: 'signature', // 'circle' | 'tag' | 'signature'
     colorblind: false,
     showOnlyDeals: false,
     hideOverpriced: false,
@@ -364,9 +364,15 @@
         input[type="text"], input[type="number"], input[type="password"] { width:100%; padding:8px; border-radius:8px; border:1px solid #374151; background:#0b1220; color:#e5e7eb; }
         .inline { display:flex; gap:8px; align-items:center; }
         .icon-preview { width:22px; height:22px; border-radius:50%; object-fit:cover; border:1px solid #1f2937; }
-        /* Signature SVG monogram (overlay disabled in cutout mode) */
+        /* Signature SVG monogram (always shown with lightning effect) */
         #tmw-sig { width:24px; height:24px; display:none; }
         .shape-signature #tmw-emoji, .shape-signature #tmw-icon-img { display:none !important; }
+        .shape-signature #tmw-sig { display:block; }
+        .shape-signature #tmw-sig .stroke { fill:none; stroke:#f8fafc; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:20 10; animation: tmw-volt 2.1s linear infinite; }
+        .shape-signature #tmw-sig .stroke.s2 { animation-delay: .2s; }
+        .shape-signature #tmw-sig .stroke.glow { stroke:#93c5fd; stroke-width:3.2; opacity:.9; filter:url(#tmw-glow); animation: tmw-volt 2.1s linear infinite reverse, tmw-zap 3.6s ease-in-out infinite; }
+        @keyframes tmw-volt { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -120; } }
+        @keyframes tmw-zap { 0%,18%{ opacity:.85 } 19%{ opacity:.6 } 21%{ opacity:1 } 48%{ opacity:.9 } 51%{ opacity:.7 } 70%{ opacity:1 } 100%{ opacity:.85 } }
         .row { display:flex; gap:8px; }
         .row > * { flex:1; }
         .actions { display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
@@ -406,7 +412,7 @@
         .sec-body { padding:10px; }
         /* Radial side menu */
         .tmw-radial { position:fixed; inset:0; z-index:2147483647; pointer-events:none; }
-        .tmw-radial .bg { position:absolute; inset:0; backdrop-filter: blur(0px); }
+        .tmw-radial .bg { position:absolute; inset:0; backdrop-filter: blur(0px); pointer-events:auto; background: rgba(0,0,0,0); }
         .tmw-radial .node { position:absolute; width:36px; height:36px; border-radius:50%; background:#111827; color:#e5e7eb; border:1px solid #1f2937; box-shadow:0 8px 24px rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; font-size:12px; pointer-events:auto; cursor:pointer; transition: box-shadow .2s ease, transform .2s ease; }
         .tmw-radial .node:hover { background:#1f2937; box-shadow:0 10px 28px rgba(59,130,246,.4); transform: translateY(-1px); }
         .tmw-radial .legend { position:absolute; padding:4px 8px; border-radius:8px; background:#111827; color:#9ca3af; border:1px solid #1f2937; font-size:11px; box-shadow:0 8px 24px rgba(0,0,0,.35); pointer-events:none; white-space:nowrap; }
@@ -416,6 +422,10 @@
           <span id="tmw-emoji">🐶</span>
           <img id="tmw-icon-img" class="icon-preview" style="display:none" alt="icon"/>
           <svg id="tmw-sig" viewBox="0 0 24 24" aria-hidden="true">
+            <!-- glow layer -->
+            <path class="stroke glow s1" d="M6 4v12h8" />
+            <path class="stroke glow s2" d="M18 4l-4 12h8" />
+            <!-- base line layer -->
             <path class="stroke s1" d="M6 4v12h8" />
             <path class="stroke s2" d="M18 4l-4 12h8" />
           </svg>
@@ -436,6 +446,14 @@
               <path d="M18 4l-4 12h8" stroke="black" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
             </g>
           </mask>
+          <!-- glow filter for lightning effect -->
+          <filter id="tmw-glow" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur"/>
+              <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+          </filter>
         </defs>
       </svg>
       <div class="panel" id="tmw-panel">
@@ -464,6 +482,7 @@
     enableDockDrag();
     GM_registerMenuCommand('TMW: Open Settings', () => togglePanel(true));
     updateDockState();
+    enforceBrand();
     applyDockIcon();
     applyDockShape();
     try {
@@ -534,6 +553,15 @@
     } catch(_) {}
   }
 
+  function enforceBrand() {
+    try {
+      const s = getSettings();
+      if (s.dockShape !== 'signature') {
+        setSettings({ ...s, dockShape: 'signature' });
+      }
+    } catch(_) {}
+  }
+
   function applyDockVisualState() {
     try {
       const btn = ui.shadow.getElementById('tmw-dock-btn'); if (!btn) return;
@@ -545,6 +573,22 @@
       else if (snoozed) btn.classList.add('state-snoozed');
       else if (cooling) btn.classList.add('state-cooling');
       else btn.classList.add('state-active');
+    } catch(_) {}
+  }
+
+  function flashSignature() {
+    try {
+      const dock = ui.shadow && ui.shadow.getElementById('tmw-dock');
+      if (!dock || !dock.classList.contains('shape-signature')) return;
+      // restart stroke animation by cloning paths
+      try {
+        const s1 = ui.shadow.querySelector('#tmw-sig .s1');
+        const s2 = ui.shadow.querySelector('#tmw-sig .s2');
+        if (s1 && s1.parentNode) { const c = s1.cloneNode(true); s1.parentNode.replaceChild(c, s1); }
+        if (s2 && s2.parentNode) { const c2 = s2.cloneNode(true); s2.parentNode.replaceChild(c2, s2); }
+      } catch(_) {}
+      dock.classList.add('sig-show');
+      setTimeout(()=>{ try { dock.classList.remove('sig-show'); } catch(_) {} }, 900);
     } catch(_) {}
   }
 
@@ -721,10 +765,8 @@
             </div>
             <div>
               <label>Dock shape</label>
-              <select id="ex-dock-shape" style="width:100%; padding:6px; border-radius:6px; border:1px solid #374151; background:#0b1220; color:#e5e7eb;">
-                <option value="circle" ${getSettings().dockShape==='circle'?'selected':''}>Circle (default)</option>
-                <option value="tag" ${getSettings().dockShape==='tag'?'selected':''}>Price tag</option>
-                <option value="signature" ${getSettings().dockShape==='signature'?'selected':''}>Signature shield</option>
+              <select id="ex-dock-shape" style="width:100%; padding:6px; border-radius:6px; border:1px solid #374151; background:#0b1220; color:#e5e7eb;" disabled>
+                <option value="signature" selected>Signature shield (fixed)</option>
               </select>
             </div>
           </div>
@@ -791,7 +833,7 @@
           const volPct = Math.max(0, Math.min(100, Number(modal.querySelector('#ex-volume').value)||Math.round((getSettings().volume||DEFAULTS.volume)*100)));
           const qStart = Number(modal.querySelector('#ex-quiet-start').value)||0;
           const qEnd = Number(modal.querySelector('#ex-quiet-end').value)||0;
-          const dockShape = String(modal.querySelector('#ex-dock-shape').value || 'circle');
+          const dockShape = 'signature';
           setSettings({ ...getSettings(), goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, queueIntervalMs: q, apiBase: base, volume: (volPct/100), quiet: { start: qStart, end: qEnd }, dockShape });
           try { applyDockShape(); } catch(_) {}
           notify('Extra settings saved.'); modal.remove(); scanDomSoon();
@@ -810,8 +852,9 @@
       ui.shadow.appendChild(root);
 
       const center = ui.shadow.getElementById('tmw-dock-btn').getBoundingClientRect();
-      const cx = center.left + center.width/2 + window.scrollX;
-      const cy = center.top + center.height/2 + window.scrollY;
+      // In shadow fixed container, use viewport coords (no scroll offsets)
+      const cx = center.left + center.width/2;
+      const cy = center.top + center.height/2;
       const radius = 70;
       // Define nodes: [label, act]
       const s = getSettings();
@@ -885,6 +928,7 @@
       try { const st = GM_getValue(STORAGE_KEYS.ui, { scrollTop: 0 }).scrollTop || 0; requestAnimationFrame(()=>{ const cnt = ui.shadow.getElementById('tmw-cnt'); if (cnt) cnt.scrollTop = st; }); } catch(_) {}
       try { ui.panel.classList.add('tmw-anim-in'); ui.panel.classList.add('tmw-active'); setTimeout(()=>ui.panel.classList.remove('tmw-anim-in'), 350); } catch(_) {}
       try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-spin'); setTimeout(()=>b.classList.remove('tmw-spin'), 520); } catch(_) {}
+      try { flashSignature(); } catch(_) {}
       try { const c = ui.shadow.getElementById('tmw-count'); if (c) { c.textContent = '0'; c.style.display='none'; } } catch(_) {}
     } else {
       try { ui.panel.classList.remove('tmw-active'); } catch(_) {}
@@ -1488,14 +1532,7 @@
           pushHit({ ts: Date.now(), itemId: info.itemId, name: watched.name || info.itemName, price: info.price, target: watched.target });
           if (!muted) {
             notify(`Deal found: ${watched.name || info.itemName} at ${fmtMoney(info.price)} (target ≤ ${fmtMoney(watched.target)})`);
-            try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-pop'); setTimeout(()=>b.classList.remove('tmw-pop'), 650);
-              // also restart signature stroke for a "signature" moment
-              if (ui.shadow.getElementById('tmw-dock').classList.contains('shape-signature')) {
-                const s1 = ui.shadow.querySelector('#tmw-sig .s1'); const s2 = ui.shadow.querySelector('#tmw-sig .s2');
-                if (s1 && s1.parentNode) { const c = s1.cloneNode(true); s1.parentNode.replaceChild(c, s1); }
-                if (s2 && s2.parentNode) { const c2 = s2.cloneNode(true); s2.parentNode.replaceChild(c2, s2); }
-              }
-            } catch(_) {}
+            try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-pop'); setTimeout(()=>b.classList.remove('tmw-pop'), 650); flashSignature(); } catch(_) {}
             try { playHitSound(); } catch(_) {}
             try { const c = ui.shadow.getElementById('tmw-count'); if (c && ui.panel && ui.panel.style.display!=='block') { c.textContent = String((Number(c.textContent||'0')||0)+1); c.style.display=''; } } catch(_) {}
           }
