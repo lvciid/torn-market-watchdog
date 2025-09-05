@@ -34,6 +34,7 @@ Tip: In Tampermonkey, the script auto‑updates from the URL above. Updates appl
 - Route toggles: Choose where scanning is active.
 - Pause: Temporarily stop scanning from the dock or panel.
 - Overrides: Per‑item custom thresholds or mark items to ignore.
+- Dock icon: Set emoji/image for light and dark separately, or leave blank to use the built‑in snake SVGs. You can also host your own at `assets/logo.svg` (or any URL) and paste the link.
 
 ## Compatibility
 
