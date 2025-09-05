@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Market Watchdog
 // @namespace    https://github.com/lvciid/torn-market-watchdog
-// @version      0.3.6
+// @version      0.3.9
 // @description  Highlights deals, warns on ripoffs, and alerts watchlist items using live Torn API data. Your API key stays local and never exposed.
 // @author       lvciid
 // @match        *://*.torn.com/*
@@ -43,7 +43,7 @@
     items: 'tmw_items_dict', // { ts: number, itemsById: {...}, idByName: {...} }
     marketCache: 'tmw_market_cache', // { [itemId]: { ts: number, median: number, min: number, sample: number } }
     watchlist: 'tmw_watchlist', // { [itemId]: { name: string, target: number } }
-    settings: 'tmw_settings', // { goodThreshold, overpriceMultiplier, refreshSeconds, apiBase, dockIconLight, dockIconDark, minimal, colorblind, showOnlyDeals, hideOverpriced, alwaysConfirm, disableOverConfirm, sounds, quiet, compactBadges, badgePosition, openOnHit, snoozeUntil, monitorEnabled, monitorIntervalSec }
+    settings: 'tmw_settings', // { goodThreshold, overpriceMultiplier, refreshSeconds, apiBase, dockIconLight, dockIconDark, dockShape, minimal, colorblind, showOnlyDeals, hideOverpriced, alwaysConfirm, disableOverConfirm, sounds, quiet, compactBadges, badgePosition, openOnHit, snoozeUntil, monitorEnabled, monitorIntervalSec }
     monitor: 'tmw_monitor', // { [itemId]: { min:number|null, ts:number, alertedTs?:number } }
     ui: 'tmw_ui_state', // { dock:{x:number,y:number}, open:boolean, apiCollapsed?:boolean }
     mutes: 'tmw_mutes', // { [itemId]: number (muteUntilTs) }
@@ -58,6 +58,7 @@
     itemsTtlMs: 24 * 60 * 60 * 1000, // 24h
     marketTtlMs: 60 * 1000, // 60s
     minimal: false,
+    dockShape: 'circle', // 'circle' | 'tag' | 'signature'
     colorblind: false,
     showOnlyDeals: false,
     hideOverpriced: false,
@@ -90,6 +91,7 @@
       // Emblem is hardwired for all users (owner can change in script only)
       dockIconLight: DOCK_ICON_DEFAULT_LIGHT,
       dockIconDark: DOCK_ICON_DEFAULT_DARK,
+      dockShape: s.dockShape || DEFAULTS.dockShape,
       minimal: s.minimal != null ? !!s.minimal : DEFAULTS.minimal,
       // Colorblind palette disabled by default per owner request
       colorblind: false,
@@ -330,6 +332,23 @@
         .dock-btn.tmw-breathe { animation: tmw-breath 3.2s ease-in-out infinite alternate; }
         .dock-btn.tmw-pop { animation: tmw-pop 600ms ease; }
         .dock-btn.tmw-spin { animation: tmw-spin 480ms ease-out; }
+        .dock-btn.state-active { background: linear-gradient(135deg,#2d6cdf,#5b8def); }
+        .dock-btn.state-paused { background: linear-gradient(135deg,#b91c1c,#ef4444); }
+        .dock-btn.state-snoozed { background: linear-gradient(135deg,#0ea5e9,#60a5fa); }
+        .dock-btn.state-cooling { background: linear-gradient(135deg,#d97706,#f59e0b); }
+        /* Alternative dock shapes */
+        .shape-tag .dock-btn { border-radius:10px; width:50px; height:36px; padding-left:8px; clip-path: polygon(0% 0%, 72% 0%, 86% 50%, 72% 100%, 0% 100%); }
+        .shape-tag .ring { display:none; }
+        .shape-tag .badge { bottom:-2px; left:-6px; }
+        .shape-signature .dock-btn { width:56px; height:64px; border-radius:0; clip-path: polygon(50% 0%, 88% 12%, 100% 42%, 50% 100%, 0% 42%, 12% 12%); position:relative; -webkit-mask: url(#tmw-mask) no-repeat 0 0 / 56px 64px; mask: url(#tmw-mask) no-repeat 0 0 / 56px 64px; }
+        .shape-signature .dock-btn::before { content:""; position:absolute; inset:6px 10px 10px 10px; background:
+          radial-gradient(120% 100% at 50% 0%, rgba(255,255,255,.25), transparent 55%) ,
+          linear-gradient(160deg, rgba(255,255,255,.12), transparent 60%);
+          border-radius:8px; opacity:.6; pointer-events:none; }
+        .shape-signature .ring { display:none; }
+        .shape-signature .badge { bottom:0; left:-4px; }
+        @keyframes tmw-aura { 0%{ box-shadow:0 8px 24px rgba(59,130,246,.35); } 50%{ box-shadow:0 12px 36px rgba(59,130,246,.55);} 100%{ box-shadow:0 8px 24px rgba(59,130,246,.35);} }
+        .shape-signature .dock-btn.state-active { animation: tmw-aura 3.6s ease-in-out infinite; }
         .ring { position:absolute; inset:-3px; border-radius:50%; pointer-events:none; background: conic-gradient(#93c5fd 0deg, transparent 0deg); opacity:.6; }
         .badge { position:absolute; bottom:-2px; left:-2px; min-width:14px; height:14px; padding:0 4px; border-radius:10px; background:#ef4444; color:#fff; font-size:10px; line-height:14px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 6px rgba(239,68,68,.7); }
         .dot { position:absolute; top:4px; right:4px; width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 6px rgba(16,185,129,.8); display:none; }
@@ -345,6 +364,9 @@
         input[type="text"], input[type="number"], input[type="password"] { width:100%; padding:8px; border-radius:8px; border:1px solid #374151; background:#0b1220; color:#e5e7eb; }
         .inline { display:flex; gap:8px; align-items:center; }
         .icon-preview { width:22px; height:22px; border-radius:50%; object-fit:cover; border:1px solid #1f2937; }
+        /* Signature SVG monogram (overlay disabled in cutout mode) */
+        #tmw-sig { width:24px; height:24px; display:none; }
+        .shape-signature #tmw-emoji, .shape-signature #tmw-icon-img { display:none !important; }
         .row { display:flex; gap:8px; }
         .row > * { flex:1; }
         .actions { display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
@@ -385,18 +407,37 @@
         /* Radial side menu */
         .tmw-radial { position:fixed; inset:0; z-index:2147483647; pointer-events:none; }
         .tmw-radial .bg { position:absolute; inset:0; backdrop-filter: blur(0px); }
-        .tmw-radial .node { position:absolute; width:36px; height:36px; border-radius:50%; background:#111827; color:#e5e7eb; border:1px solid #1f2937; box-shadow:0 8px 24px rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; font-size:12px; pointer-events:auto; cursor:pointer; }
-        .tmw-radial .node:hover { background:#1f2937; }
+        .tmw-radial .node { position:absolute; width:36px; height:36px; border-radius:50%; background:#111827; color:#e5e7eb; border:1px solid #1f2937; box-shadow:0 8px 24px rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; font-size:12px; pointer-events:auto; cursor:pointer; transition: box-shadow .2s ease, transform .2s ease; }
+        .tmw-radial .node:hover { background:#1f2937; box-shadow:0 10px 28px rgba(59,130,246,.4); transform: translateY(-1px); }
+        .tmw-radial .legend { position:absolute; padding:4px 8px; border-radius:8px; background:#111827; color:#9ca3af; border:1px solid #1f2937; font-size:11px; box-shadow:0 8px 24px rgba(0,0,0,.35); pointer-events:none; white-space:nowrap; }
       </style>
       <div class="dock" id="tmw-dock">
         <button class="dock-btn" id="tmw-dock-btn" title="Open Torn Market Watchdog">
           <span id="tmw-emoji">🐶</span>
           <img id="tmw-icon-img" class="icon-preview" style="display:none" alt="icon"/>
+          <svg id="tmw-sig" viewBox="0 0 24 24" aria-hidden="true">
+            <path class="stroke s1" d="M6 4v12h8" />
+            <path class="stroke s2" d="M18 4l-4 12h8" />
+          </svg>
           <span class="ring" id="tmw-ring"></span>
           <span class="dot" id="tmw-dot"></span>
           <span class="badge" id="tmw-count" style="display:none">0</span>
         </button>
       </div>
+      <!-- Signature mask defs for shield cutout (monogram punched out) -->
+      <svg width="0" height="0" style="position:absolute">
+        <defs>
+          <mask id="tmw-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="56" height="64">
+            <!-- base: keep all -->
+            <rect x="0" y="0" width="56" height="64" fill="white"/>
+            <!-- cutout LV lines -->
+            <g transform="translate(4,8) scale(2)">
+              <path d="M6 4v12h8" stroke="black" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+              <path d="M18 4l-4 12h8" stroke="black" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            </g>
+          </mask>
+        </defs>
+      </svg>
       <div class="panel" id="tmw-panel">
         <div class="hdr">
           <div class="ttl"><span class="brand">lvciid's</span> <span class="brand">Torn Market Watchdog</span> <span class="idle-dot" title="Active"></span></div>
@@ -424,6 +465,7 @@
     GM_registerMenuCommand('TMW: Open Settings', () => togglePanel(true));
     updateDockState();
     applyDockIcon();
+    applyDockShape();
     try {
       const mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
       if (mq && mq.addEventListener) mq.addEventListener('change', applyDockIcon);
@@ -473,6 +515,39 @@
     } catch(_) {}
   }
 
+  function applyDockShape() {
+    try {
+      const { dockShape } = getSettings();
+      const root = ui.shadow.getElementById('tmw-dock');
+      root.classList.remove('shape-circle','shape-tag','shape-signature');
+      root.classList.add(dockShape === 'tag' ? 'shape-tag' : (dockShape==='signature' ? 'shape-signature' : 'shape-circle'));
+      // restart signature stroke animation when switching to signature
+      if (dockShape === 'signature') {
+        try {
+          const s1 = ui.shadow.querySelector('#tmw-sig .s1');
+          const s2 = ui.shadow.querySelector('#tmw-sig .s2');
+          // restart by cloning nodes
+          if (s1 && s1.parentNode) { const c = s1.cloneNode(true); s1.parentNode.replaceChild(c, s1); }
+          if (s2 && s2.parentNode) { const c2 = s2.cloneNode(true); s2.parentNode.replaceChild(c2, s2); }
+        } catch(_) {}
+      }
+    } catch(_) {}
+  }
+
+  function applyDockVisualState() {
+    try {
+      const btn = ui.shadow.getElementById('tmw-dock-btn'); if (!btn) return;
+      const s = getSettings();
+      const snoozed = s.snoozeUntil && Date.now() < s.snoozeUntil;
+      const cooling = (__backoffUntil && Date.now() < __backoffUntil);
+      btn.classList.remove('state-active','state-paused','state-snoozed','state-cooling');
+      if (s.paused) btn.classList.add('state-paused');
+      else if (snoozed) btn.classList.add('state-snoozed');
+      else if (cooling) btn.classList.add('state-cooling');
+      else btn.classList.add('state-active');
+    } catch(_) {}
+  }
+
   function updateDockState() {
     try {
       const dot = ui.shadow.getElementById('tmw-dot');
@@ -481,6 +556,7 @@
       const s = getSettings();
       const snoozed = s.snoozeUntil && Date.now() < s.snoozeUntil;
       const cooling = (__backoffUntil && Date.now() < __backoffUntil);
+      const btn = ui.shadow.getElementById('tmw-dock-btn');
       dot.classList.remove('show');
       if (s.paused) {
         dot.style.background = '#ef4444'; // red
@@ -500,6 +576,14 @@
         ui.shadow.getElementById('tmw-dock-btn').title = 'Cooling down — click to open';
       } else {
         ui.shadow.getElementById('tmw-dock-btn').title = 'Open Torn Market Watchdog';
+      }
+      // Toggle state classes for deluxe gradients
+      if (btn) {
+        btn.classList.remove('state-active','state-paused','state-snoozed','state-cooling');
+        if (s.paused) btn.classList.add('state-paused');
+        else if (snoozed) btn.classList.add('state-snoozed');
+        else if (cooling) btn.classList.add('state-cooling');
+        else btn.classList.add('state-active');
       }
       // Progress ring for monitor
       if (ring) {
@@ -592,6 +676,14 @@
           </div>
           <div class="tmw-row">
             <div>
+              <label><input id="ex-always-confirm" type="checkbox" ${getSettings().alwaysConfirm ? 'checked' : ''}/> Always confirm before buy</label>
+            </div>
+            <div>
+              <label><input id="ex-disable-overconfirm" type="checkbox" ${getSettings().disableOverConfirm ? 'checked' : ''}/> Disable overpriced confirm</label>
+            </div>
+          </div>
+          <div class="tmw-row">
+            <div>
               <label>Auto-refresh (s)</label>
               <input id="ex-refresh" type="number" min="15" max="300" value="${getSettings().refreshSeconds}" />
             </div>
@@ -599,6 +691,17 @@
               <label>Queue spacing (ms)</label>
               <input id="ex-queue" type="number" min="750" max="5000" value="${getSettings().queueIntervalMs||1500}" />
             </div>
+          </div>
+          <div class="tmw-row">
+            <div>
+              <label>Quiet hours</label>
+              <div>
+                <input id="ex-quiet-start" type="number" min="0" max="23" value="${Number(getSettings().quiet?.start ?? 23)}" />
+                <span class="muted">to</span>
+                <input id="ex-quiet-end" type="number" min="0" max="23" value="${Number(getSettings().quiet?.end ?? 7)}" />
+              </div>
+            </div>
+            <div></div>
           </div>
           <div class="tmw-row">
             <div>
@@ -615,6 +718,22 @@
             <div>
               <label>API base</label>
               <input id="ex-api" type="text" value="${escapeHtml(getSettings().apiBase||'')}" />
+            </div>
+            <div>
+              <label>Dock shape</label>
+              <select id="ex-dock-shape" style="width:100%; padding:6px; border-radius:6px; border:1px solid #374151; background:#0b1220; color:#e5e7eb;">
+                <option value="circle" ${getSettings().dockShape==='circle'?'selected':''}>Circle (default)</option>
+                <option value="tag" ${getSettings().dockShape==='tag'?'selected':''}>Price tag</option>
+                <option value="signature" ${getSettings().dockShape==='signature'?'selected':''}>Signature shield</option>
+              </select>
+            </div>
+          </div>
+          <div class="tmw-row">
+            <div>
+              <button class="secondary" id="ex-clear-cache">Clear Market Cache</button>
+            </div>
+            <div class="tmw-actions">
+              <button class="secondary" id="ex-reset-all">Reset to Defaults</button>
             </div>
           </div>
           <div class="tmw-actions">
@@ -648,6 +767,20 @@
         });
       } catch(_){}
 
+      // Clear Market Cache
+      try {
+        modal.querySelector('#ex-clear-cache').addEventListener('click', ()=>{
+          try { setMarketCache({}); notify('Market cache cleared.'); scanDomSoon(); } catch(_) {}
+        });
+      } catch(_){}
+      // Reset to defaults
+      try {
+        modal.querySelector('#ex-reset-all').addEventListener('click', ()=>{
+          if (!confirm('Reset all settings, watchlist, overrides, and cache?')) return;
+          try { setSettings({}); setWatchlist({}); setOverrides({}); setMarketCache({}); notify('All settings reset.'); modal.remove(); renderSettingsPanel(); } catch(_) {}
+        });
+      } catch(_){}
+
       modal.querySelector('#ex-save').addEventListener('click', ()=>{
         try {
           const good = Number(modal.querySelector('#ex-good').value);
@@ -656,7 +789,11 @@
           const q = Number(modal.querySelector('#ex-queue').value)||1500;
           const base = String(modal.querySelector('#ex-api').value||API_BASE);
           const volPct = Math.max(0, Math.min(100, Number(modal.querySelector('#ex-volume').value)||Math.round((getSettings().volume||DEFAULTS.volume)*100)));
-          setSettings({ ...getSettings(), goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, queueIntervalMs: q, apiBase: base, volume: (volPct/100) });
+          const qStart = Number(modal.querySelector('#ex-quiet-start').value)||0;
+          const qEnd = Number(modal.querySelector('#ex-quiet-end').value)||0;
+          const dockShape = String(modal.querySelector('#ex-dock-shape').value || 'circle');
+          setSettings({ ...getSettings(), goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, queueIntervalMs: q, apiBase: base, volume: (volPct/100), quiet: { start: qStart, end: qEnd }, dockShape });
+          try { applyDockShape(); } catch(_) {}
           notify('Extra settings saved.'); modal.remove(); scanDomSoon();
         } catch(_) { notify('Failed to save settings'); }
       });
@@ -688,13 +825,32 @@
         { t: '⚙', a: 'open-settings' },
         { t: '⋯', a: 'extras' },
       ];
+      const titleFor = (act) => {
+        switch (act) {
+          case 'toggle-pause': return 'Pause / Resume';
+          case 'snooze-5': return 'Snooze 5 minutes';
+          case 'snooze-15': return 'Snooze 15 minutes';
+          case 'snooze-30': return 'Snooze 30 minutes';
+          case 'toggle-deals': return (getSettings().showOnlyDeals ? 'Show all' : 'Show deals only');
+          case 'toggle-over': return (getSettings().hideOverpriced ? 'Show overpriced' : 'Hide overpriced');
+          case 'open-settings': return 'Open settings';
+          case 'extras': return 'Extra settings…';
+        }
+        return '';
+      };
       items.forEach((it, i) => {
-        const node = document.createElement('div'); node.className='node'; node.textContent = it.t; node.setAttribute('data-act', it.a);
+        const node = document.createElement('div'); node.className='node'; node.textContent = it.t; node.setAttribute('data-act', it.a); node.title = titleFor(it.a);
         const angle = (Math.PI * 2) * (i / items.length) - Math.PI/2;
         const x = cx + Math.cos(angle)*radius; const y = cy + Math.sin(angle)*radius;
         node.style.left = `${x-18}px`; node.style.top = `${y-18}px`;
         root.appendChild(node);
       });
+      // Add a small legend near the radial explaining D/O
+      try {
+        const legend = document.createElement('div'); legend.className = 'legend'; legend.textContent = 'D = Deals only • O = Hide overpriced';
+        legend.style.left = `${cx}px`; legend.style.top = `${cy + radius + 22}px`; legend.style.transform = 'translate(-50%, -50%)';
+        root.appendChild(legend);
+      } catch(_) {}
       const close = () => { try { root.remove(); } catch(_) {} };
       root.querySelector('.bg').addEventListener('click', close);
       root.addEventListener('click', (e)=>{
@@ -817,9 +973,6 @@
         <div class="row">
           <label><input type="checkbox" id="tmw-minimal" ${s.minimal ? 'checked' : ''}/> Minimal highlight (badges only)</label>
           <label style="display:none"><input type="checkbox" id="tmw-colorblind" ${s.colorblind ? 'checked' : ''}/> Colorblind-friendly palette</label>
-          <label><input type="checkbox" id="tmw-show-deals" ${s.showOnlyDeals ? 'checked' : ''}/> Show deals only</label>
-          <label><input type="checkbox" id="tmw-hide-over" ${s.hideOverpriced ? 'checked' : ''}/> Hide overpriced</label>
-          <div class="actions"><button id="tmw-clear-cache" class="secondary">Clear Market Cache</button></div>
         </div>
         <div class="row">
           <label><input type="checkbox" id="tmw-compact" ${s.compactBadges ? 'checked' : ''}/> Compact badges</label>
@@ -831,21 +984,11 @@
             </select>
           </div>
         </div>
-        <div class="row">
-          <label><input type="checkbox" id="tmw-always-confirm" ${s.alwaysConfirm ? 'checked' : ''}/> Always confirm before buy</label>
-          <label><input type="checkbox" id="tmw-disable-overconfirm" ${s.disableOverConfirm ? 'checked' : ''}/> Disable overpriced confirm</label>
-          <div class="actions"><button id="tmw-reset-all" class="secondary">Reset to Defaults</button></div>
-        </div>
+        
         <div class="row">
           <div>
             <label>Notifications</label>
             <label class="inline"><input type="checkbox" id="tmw-sounds" ${s.sounds ? 'checked' : ''}/> Sound on watchlist hit</label>
-            <div class="inline">
-              <span class="muted">Quiet hours</span>
-              <input id="tmw-quiet-start" type="number" min="0" max="23" value="${Number(s.quiet?.start ?? 23)}" />
-              <span class="muted">to</span>
-              <input id="tmw-quiet-end" type="number" min="0" max="23" value="${Number(s.quiet?.end ?? 7)}" />
-            </div>
             <label class="inline"><input type="checkbox" id="tmw-open-hit" ${s.openOnHit ? 'checked' : ''}/> Open panel on watchlist hit</label>
             <div class="inline">
               <span class="muted">Snooze:</span>
@@ -937,34 +1080,18 @@
       const prev = getSettings();
       const minimal = !!ui.shadow.getElementById('tmw-minimal').checked;
       const colorblind = false;
-      const showOnlyDeals = !!ui.shadow.getElementById('tmw-show-deals').checked;
-      const hideOverpriced = !!ui.shadow.getElementById('tmw-hide-over').checked;
       const compactBadges = !!ui.shadow.getElementById('tmw-compact').checked;
       const badgePosition = String(ui.shadow.getElementById('tmw-badge-pos').value || 'name');
-      const alwaysConfirm = !!ui.shadow.getElementById('tmw-always-confirm').checked;
-      const disableOverConfirm = !!ui.shadow.getElementById('tmw-disable-overconfirm').checked;
       const sounds = !!ui.shadow.getElementById('tmw-sounds').checked;
       const openOnHit = !!ui.shadow.getElementById('tmw-open-hit').checked;
-      const quiet = { start: Number(ui.shadow.getElementById('tmw-quiet-start').value)||0, end: Number(ui.shadow.getElementById('tmw-quiet-end').value)||0 };
       const monitorEnabled = !!ui.shadow.getElementById('tmw-monitor-enabled').checked;
       const monitorIntervalSec = Number(ui.shadow.getElementById('tmw-monitor-interval').value)||30;
-      setSettings({ ...prev, minimal, colorblind, showOnlyDeals, hideOverpriced, compactBadges, badgePosition, alwaysConfirm, disableOverConfirm, sounds, quiet, openOnHit, monitorEnabled, monitorIntervalSec });
+      setSettings({ ...prev, minimal, colorblind, compactBadges, badgePosition, sounds, openOnHit, monitorEnabled, monitorIntervalSec });
       applyDockIcon();
       notify('Watchdog settings saved.');
     };
 
-    ui.shadow.getElementById('tmw-clear-cache').onclick = () => {
-      setMarketCache({});
-      notify('Market cache cleared.');
-      try { scanDomSoon(); } catch(_) {}
-    };
-
-    ui.shadow.getElementById('tmw-reset-all').onclick = () => {
-      if (!confirm('Reset all settings, watchlist, overrides, and cache?')) return;
-      setSettings({}); setWatchlist({}); setOverrides({}); setMarketCache({});
-      notify('All settings reset.');
-      renderSettingsPanel();
-    };
+    // Clear cache / Reset moved to Extra settings
 
     ui.shadow.getElementById('tmw-diagnostics').onclick = () => {
       const s2 = getSettings(); const wl = getWatchlist(); const ov = getOverrides();
@@ -1276,12 +1403,15 @@
     if (withinQuiet) return;
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const o = ctx.createOscillator();
       const g = ctx.createGain();
       const vol = Math.max(0, Math.min(1, Number(s.volume != null ? s.volume : DEFAULTS.volume)));
-      g.gain.value = vol; o.connect(g); g.connect(ctx.destination);
-      o.type = 'sine'; o.frequency.value = 880; o.start();
-      setTimeout(()=>{ o.stop(); ctx.close(); }, 160);
+      g.gain.value = vol; g.connect(ctx.destination);
+      // two-tone chime: A5 then E5
+      const o1 = ctx.createOscillator(); o1.type = 'sine'; o1.frequency.value = 880; o1.connect(g); o1.start();
+      setTimeout(()=>{ o1.stop(); }, 140);
+      const o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = 659.25; o2.connect(g);
+      setTimeout(()=>{ o2.start(); }, 110);
+      setTimeout(()=>{ o2.stop(); ctx.close(); }, 280);
     } catch(_) {}
   }
 
@@ -1358,7 +1488,14 @@
           pushHit({ ts: Date.now(), itemId: info.itemId, name: watched.name || info.itemName, price: info.price, target: watched.target });
           if (!muted) {
             notify(`Deal found: ${watched.name || info.itemName} at ${fmtMoney(info.price)} (target ≤ ${fmtMoney(watched.target)})`);
-            try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-pop'); setTimeout(()=>b.classList.remove('tmw-pop'), 650); } catch(_) {}
+            try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-pop'); setTimeout(()=>b.classList.remove('tmw-pop'), 650);
+              // also restart signature stroke for a "signature" moment
+              if (ui.shadow.getElementById('tmw-dock').classList.contains('shape-signature')) {
+                const s1 = ui.shadow.querySelector('#tmw-sig .s1'); const s2 = ui.shadow.querySelector('#tmw-sig .s2');
+                if (s1 && s1.parentNode) { const c = s1.cloneNode(true); s1.parentNode.replaceChild(c, s1); }
+                if (s2 && s2.parentNode) { const c2 = s2.cloneNode(true); s2.parentNode.replaceChild(c2, s2); }
+              }
+            } catch(_) {}
             try { playHitSound(); } catch(_) {}
             try { const c = ui.shadow.getElementById('tmw-count'); if (c && ui.panel && ui.panel.style.display!=='block') { c.textContent = String((Number(c.textContent||'0')||0)+1); c.style.display=''; } } catch(_) {}
           }

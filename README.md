@@ -29,6 +29,9 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 - Color/UX: Colorblind palette; Minimal (badge‑only) mode; compact money; badge position (by name/price).
 - Quick actions: Small “⋯” next to badge → Watch, Ignore, Override, Clear, Mute 1h.
 - Dock UX: Click toggles panel; status dot shows paused (red), cooling (amber), snoozed (blue). Radial right‑click menu around the dock for pause/snooze/filters/settings; Extra settings open in a compact modal.
+- Radial menu legend: D = toggle “Deals only”, O = toggle “Hide overpriced”. A checkmark (✓) appears when the filter is active.
+- Deluxe dock: Choose Circle, Price tag, or Signature shield (your calling card). Signature adds branded gradients, a soft aura, and adaptive state colors (active, paused, snoozed, cooling). The hit sound is a short two‑tone chime.
+  - Signature shield includes an animated LV monogram (stroke-draw effect). On watch hits the monogram redraws for a subtle “signature” moment.
 - Progress ring: shows time to next monitor tick. Badge count shows new hits.
 - Shortcuts: Alt+W (panel), Alt+D (deals), Alt+O (hide overpriced), Alt+P (pause).
 - Icons: Built‑in light/dark LV emblem, auto theme switch. Emblem is fixed in the script (not user‑configurable).
