@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Market Watchdog
 // @namespace    https://github.com/lvciid/torn-market-watchdog
-// @version      0.3.15
+// @version      0.3.16
 // @description  Highlights deals, warns on ripoffs, and alerts watchlist items using live Torn API data. Your API key stays local and never exposed.
 // @author       lvciid
 // @match        *://*.torn.com/*
@@ -44,7 +44,7 @@
   const CUSTOM_ICON_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAACXBIWXMAAAsTAAALEwEAmpwYAAAEkUlEQVR4nO2ZeaxdQxzHP729qtrQUttD0Uo9tGqPJURsQSxRlPL+EPwhJRIEpQtF7YQ2VEIJESSopVH9ByGKiKaW0lbl8Uhf6OPVUkmVLvKT78iYnHPPzN1eE/eTnOS9e2bmzPfMzG870KJFixb/Z0rAaOBc4GpgKjAduAm4C5gBXAuMA/ZgM6MMnAk8D/QCm3R9CbwEPADcBkwCpgD3A68B3wPLJW54XwoYAEwEvvUm/z5wGdAW0b8fcCgwC1gNzAF2pckcCSzxBLwLHF3DeEOBu4EfgUtpAvYWrwP+koA1erD9Xg/GAp8BTwNb0sCD/Ji3Ct8B+zbgOYOBucDb+ruu2Bt/whPRBYygcZSAp4C3dBbrxvRgJZphOvsDr8oI1IUTgA0SsR44huaxNbAMuLDWgQZrBdxq3ErzOQxYBexYyyAzPBFL5Pz6gpnAQ9V23lbm1QmZEHFAB9EYtgd+qjYCuMETsVyHLw/zLb/oLJnZ3DPyGQMVwtj2/QQ4o0LbB4E7qYKlnhALO/IY77Vz1yKtUBH3BP3+lFPMYh+gO3Lcf9nfG3xjQez0YoYQu/aOeE5XRr+bK7Q3r39UipArg7dbibk5QtoTV91dtk3zuFcRdDTPJJjcCRmTWRy5BS4P+q0uWP2zgXkpQhZ5g58f0X4y8LvavwfslfCsC5S3WBw3qqDtflrFaHo8IUdE9ikrHG+0p1+T0mGtJ2RnNh/6K0yKxuUbdm3RuHn9E3yWE6PwDSn5z6+eEPPwqYwBZgO35IThljQ9rpW3OOqKyHGHqS4QzTeeEPMpKYzXGbsDeAX4WMIcbcrtvwJ2Ag4BvpAFK2KM2kbzhifErEos2+gNW8TquETCrlGu360KykivzSjl60MiXpL5raRo0wl5JKGfhTLPZfw+QgWKjYrJDshoswA4r2B8i7WmJcznP/FTV8LhslD7vpx7x0vEsTlbxlbyoILxP0qt1gxTAOfEHBfZ70BtozlB4eAcYCVweEafHYCvgY6CsXeX2GQr+ronxA5tLO1axWXaQhM1UYteQwZpy5lhKGJKtcnVWUEEXLTsPrspx7BV/Vz/Z4l4U37hlIi8pbva8lNJCZUTszDhrHRogvNz/NBWnmWcpUlaxJ2HWbwXqIFxQXRqhegiLEJdpxJSKedMLNR4D3se/lPVCEJ20dmouY62wBOyXuWhPMbKH5yWc9/OSafG+i3wG2Z6Qx9R0vazTxE106bJOTE9Fd7OcN3Pyu9N3A/edrVcPcyBJmUkUvNT09tKWFHuD0/MSn3QyeKdIIsboG8infL4A5V7LFV+MUTprX2e8M/TjdpuFi3UFbf3nZhehRwhVkFZobqtZZcfKnEKc5WLgJ815jyvDFtWZLFY56khnCrv7MSsVdmonGGVOuQfLq5g7bZTW8dI+ZWXlUQ1lHa9rTBHP7iGMYcq5O9RSF+v7y2FlGVJegOnadXzkwqKeY5+OjMzJeDRvvj05rCDen3gODfJOpkVugo4HTgROFnbbZqc2yrVqaZGfnNsGqM18SdVSVkh69apcugHwLPA7SohWRDYokULmsPf6qtUFOay8z8AAAAASUVORK5CYII=";
   // Lock the buddy as the icon; ignore runtime overrides
   const LOCK_BUDDY_ICON = true;
-  // Muffled-yell sound on hover is controlled via settings (buddySound)
+  
   const STORAGE_KEYS = {
     apiKey: 'tmw_api_key',
     items: 'tmw_items_dict', // { ts: number, itemsById: {...}, idByName: {...} }
@@ -56,7 +56,6 @@
     mutes: 'tmw_mutes', // { [itemId]: number (muteUntilTs) }
     hits: 'tmw_hits', // [ { ts, itemId, name, price, target } ]
     userIcon: 'tmw_user_icon', // data URL for custom dock icon
-    buddyHint: 'tmw_buddy_audio_hint_shown',
   };
 
   // Defaults
@@ -67,7 +66,7 @@
     itemsTtlMs: 24 * 60 * 60 * 1000, // 24h
     marketTtlMs: 60 * 1000, // 60s
     minimal: false,
-    dockShape: 'signature', // 'circle' | 'tag' | 'signature'
+    dockShape: 'circle', // circle only
     colorblind: false,
     showOnlyDeals: false,
     hideOverpriced: false,
@@ -75,15 +74,12 @@
     disableOverConfirm: false,
     sounds: true,
     volume: 0.08,
-    buddyVolume: 0.12,
     compactBadges: false,
     badgePosition: 'name', // or 'price'
     openOnHit: false,
     snoozeUntil: 0,
     monitorEnabled: false,
     monitorIntervalSec: 30,
-    buddySound: true,
-    buddyCooldownMs: 220,
   };
 
   // -----------------------
@@ -112,15 +108,12 @@
       disableOverConfirm: s.disableOverConfirm != null ? !!s.disableOverConfirm : DEFAULTS.disableOverConfirm,
       sounds: s.sounds != null ? !!s.sounds : DEFAULTS.sounds,
       volume: (s.volume != null ? Number(s.volume) : DEFAULTS.volume),
-      buddyVolume: (s.buddyVolume != null ? Number(s.buddyVolume) : DEFAULTS.buddyVolume),
       compactBadges: s.compactBadges != null ? !!s.compactBadges : DEFAULTS.compactBadges,
       badgePosition: s.badgePosition || DEFAULTS.badgePosition,
       openOnHit: s.openOnHit != null ? !!s.openOnHit : DEFAULTS.openOnHit,
       snoozeUntil: Number(s.snoozeUntil || 0),
       monitorEnabled: s.monitorEnabled != null ? !!s.monitorEnabled : DEFAULTS.monitorEnabled,
       monitorIntervalSec: Number(s.monitorIntervalSec || DEFAULTS.monitorIntervalSec),
-      buddySound: s.buddySound != null ? !!s.buddySound : DEFAULTS.buddySound,
-      buddyCooldownMs: Number(s.buddyCooldownMs || DEFAULTS.buddyCooldownMs),
     };
   }
 
@@ -372,15 +365,7 @@
         .shape-tag .dock-btn { border-radius:10px; width:50px; height:36px; padding-left:8px; clip-path: polygon(0% 0%, 72% 0%, 86% 50%, 72% 100%, 0% 100%); }
         .shape-tag .ring { display:none; }
         .shape-tag .badge { bottom:-2px; left:-6px; }
-        .shape-signature .dock-btn { width:56px; height:64px; border-radius:0; clip-path: polygon(50% 0%, 88% 12%, 100% 42%, 50% 100%, 0% 42%, 12% 12%); position:relative; -webkit-mask: url(#tmw-mask) no-repeat 0 0 / 56px 64px; mask: url(#tmw-mask) no-repeat 0 0 / 56px 64px; }
-        .shape-signature .dock-btn::before { content:""; position:absolute; inset:6px 10px 10px 10px; background:
-          radial-gradient(120% 100% at 50% 0%, rgba(255,255,255,.25), transparent 55%) ,
-          linear-gradient(160deg, rgba(255,255,255,.12), transparent 60%);
-          border-radius:8px; opacity:.6; pointer-events:none; }
-        .shape-signature .ring { display:none; }
-        .shape-signature .badge { bottom:0; left:-4px; }
-        @keyframes tmw-aura { 0%{ box-shadow:0 8px 24px rgba(59,130,246,.35); } 50%{ box-shadow:0 12px 36px rgba(59,130,246,.55);} 100%{ box-shadow:0 8px 24px rgba(59,130,246,.35);} }
-        .shape-signature .dock-btn.state-active { animation: tmw-aura 3.6s ease-in-out infinite; }
+        
         .ring { position:absolute; inset:-3px; border-radius:50%; pointer-events:none; background: conic-gradient(#93c5fd 0deg, transparent 0deg); opacity:.6; }
         .badge { position:absolute; bottom:-2px; left:-2px; min-width:14px; height:14px; padding:0 4px; border-radius:10px; background:#ef4444; color:#fff; font-size:10px; line-height:14px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 6px rgba(239,68,68,.7); }
         .dot { position:absolute; top:4px; right:4px; width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 6px rgba(16,185,129,.8); display:none; }
@@ -395,15 +380,10 @@
         label { display:block; font-size:12px; margin:6px 0 2px; color:#9ca3af; }
         input[type="text"], input[type="number"], input[type="password"] { width:100%; padding:8px; border-radius:8px; border:1px solid #374151; background:#0b1220; color:#e5e7eb; }
         .inline { display:flex; gap:8px; align-items:center; }
-        .icon-preview { width:26px; height:26px; border-radius:4px; object-fit:contain; border:none; filter: drop-shadow(0 1px 0 rgba(0,0,0,.18)); transition: transform .18s ease, filter .18s ease; }
+        .icon-preview { width:36px; height:36px; border-radius:6px; object-fit:contain; border:none; filter: drop-shadow(0 1px 0 rgba(0,0,0,.18)); transition: transform .18s ease, filter .18s ease; }
         .dock-btn:hover .icon-preview { transform: scale(1.06); filter: drop-shadow(0 1px 0 rgba(0,0,0,.22)); }
         /* Signature SVG monogram (always shown with lightning effect) */
-        #tmw-sig { width:24px; height:24px; display:none; }
-        .shape-signature #tmw-emoji, .shape-signature #tmw-icon-img { display:none !important; }
-        .shape-signature #tmw-sig { display:block; }
-        .shape-signature #tmw-sig .stroke { fill:none; stroke:#f8fafc; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:20 10; animation: tmw-volt 2.1s linear infinite; }
-        .shape-signature #tmw-sig .stroke.s2 { animation-delay: .2s; }
-        .shape-signature #tmw-sig .stroke.glow { stroke:#93c5fd; stroke-width:3.2; opacity:.9; filter:url(#tmw-glow); animation: tmw-volt 2.1s linear infinite reverse, tmw-zap 3.6s ease-in-out infinite; }
+        
         @keyframes tmw-volt { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -120; } }
         @keyframes tmw-zap { 0%,18%{ opacity:.85 } 19%{ opacity:.6 } 21%{ opacity:1 } 48%{ opacity:.9 } 51%{ opacity:.7 } 70%{ opacity:1 } 100%{ opacity:.85 } }
         .row { display:flex; gap:8px; }
@@ -462,50 +442,19 @@
         .tmw-radial .node { position:absolute; width:36px; height:36px; border-radius:50%; background:#111827; color:#e5e7eb; border:1px solid #1f2937; box-shadow:0 8px 24px rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; font-size:12px; pointer-events:auto; cursor:pointer; transition: box-shadow .2s ease, transform .2s ease; }
         .tmw-radial .node:hover { background:#1f2937; box-shadow:0 10px 28px rgba(59,130,246,.4); transform: translateY(-1px); }
         .tmw-radial .legend { position:absolute; padding:4px 8px; border-radius:8px; background:#111827; color:#9ca3af; border:1px solid #1f2937; font-size:11px; box-shadow:0 8px 24px rgba(0,0,0,.35); pointer-events:none; white-space:nowrap; }
-        /* One-time audio hint */
-        .tmw-hint { position:fixed; z-index:2147483647; padding:6px 8px; border-radius:8px; background:#111827; color:#e5e7eb; border:1px solid #1f2937; font-size:12px; box-shadow:0 12px 28px rgba(0,0,0,.45); opacity:0; transform: translateY(6px); transition: opacity .25s ease, transform .25s ease; }
-        .tmw-hint.show { opacity:1; transform: translateY(0); }
+        /* (audio hint removed) */
       </style>
       <div class="dock" id="tmw-dock">
         <button class="dock-btn" id="tmw-dock-btn" title="Open Torn Market Watchdog" aria-label="Open Torn Market Watchdog">
           <span id="tmw-emoji">🐶</span>
           <img id="tmw-icon-img" class="icon-preview" style="display:none" alt="icon"/>
-          <svg id="tmw-sig" viewBox="0 0 24 24" aria-hidden="true">
-            <!-- glow layer -->
-            <path class="stroke glow s1" d="M6 4v12h8" />
-            <path class="stroke glow s2" d="M18 4l-4 12h8" />
-            <!-- base line layer -->
-            <path class="stroke s1" d="M6 4v12h8" />
-            <path class="stroke s2" d="M18 4l-4 12h8" />
-          </svg>
           <span class="yell" aria-hidden="true"></span>
           <span class="ring" id="tmw-ring"></span>
           <span class="dot" id="tmw-dot"></span>
           <span class="badge" id="tmw-count" style="display:none" role="status" aria-live="polite">0</span>
         </button>
       </div>
-      <!-- Signature mask defs for shield cutout (monogram punched out) -->
-      <svg width="0" height="0" style="position:absolute">
-        <defs>
-          <mask id="tmw-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="56" height="64">
-            <!-- base: keep all -->
-            <rect x="0" y="0" width="56" height="64" fill="white"/>
-            <!-- cutout LV lines -->
-            <g transform="translate(4,8) scale(2)">
-              <path d="M6 4v12h8" stroke="black" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-              <path d="M18 4l-4 12h8" stroke="black" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-            </g>
-          </mask>
-          <!-- glow filter for lightning effect -->
-          <filter id="tmw-glow" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur"/>
-              <feMergeNode in="SourceGraphic"/>
-            </feMerge>
-          </filter>
-        </defs>
-      </svg>
+      
       <div class="panel" id="tmw-panel">
         <div class="hdr">
           <div class="ttl"><span class="brand">lvciid's</span> <span class="brand">Torn Market Watchdog</span> <span class="idle-dot" title="Active"></span></div>
@@ -529,9 +478,6 @@
     });
     btn.addEventListener('dblclick', (e) => { e.preventDefault(); const s = getSettings(); s.showOnlyDeals = !s.showOnlyDeals; setSettings(s); notify('Toggled deals-only'); scanDomSoon(); });
     btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openRadialMenu(e); });
-    // Yell-on-hover (muffled talk)
-    btn.addEventListener('mouseenter', () => { try { const s = getSettings(); if (s.buddySound) startMuffledYell(); maybeShowAudioHint(); } catch(_) {} });
-    btn.addEventListener('mouseleave', () => { try { const s = getSettings(); if (s.buddySound) stopMuffledYell(); } catch(_) {} });
     shadow.getElementById('tmw-close').addEventListener('click', () => togglePanel(false));
     enableDockDrag();
     GM_registerMenuCommand('TMW: Open Settings', () => togglePanel(true));
@@ -540,7 +486,6 @@
     applyDockIcon();
     applyDockShape();
     if (!LOCK_BUDDY_ICON) bindCustomIconInputs();
-    try { maybeShowAudioHint(); } catch(_) {}
     try {
       const mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
       if (mq && mq.addEventListener) mq.addEventListener('change', applyDockIcon);
@@ -566,8 +511,9 @@
       const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
       const { dockIconLight, dockIconDark } = getSettings();
       const userIcon = (typeof GM_getValue === 'function') ? (GM_getValue(STORAGE_KEYS.userIcon, '') || '') : '';
-      let dockIcon = prefersDark ? (dockIconDark || dockIconLight) : (dockIconLight || dockIconDark);
-      if (userIcon) dockIcon = userIcon; else if (CUSTOM_ICON_URL) dockIcon = CUSTOM_ICON_URL;
+      const BUDDY_FALLBACK_URL = 'https://lvciid.github.io/torn-market-watchdog/assets/buddy.png';
+      // Prefer baked buddy, then user override, then theme default
+      let dockIcon = CUSTOM_ICON_URL || userIcon || (prefersDark ? (dockIconDark || dockIconLight) : (dockIconLight || dockIconDark));
       const btn = ui.shadow.getElementById('tmw-dock-btn');
       const emoji = ui.shadow.getElementById('tmw-emoji');
       const img = ui.shadow.getElementById('tmw-icon-img');
@@ -577,6 +523,7 @@
         img.style.display = '';
         emoji.style.display = 'none';
       } else if (/^(https?:|data:)/i.test(dockIcon)) {
+        img.onerror = null;
         img.src = dockIcon;
         img.style.display = '';
         emoji.style.display = 'none';
@@ -586,6 +533,11 @@
         emoji.style.display = '';
         img.style.display = 'none';
         img.removeAttribute('src');
+      }
+      // If data: URLs are blocked by CSP, fall back to hosted PNG
+      if (img && CUSTOM_ICON_URL && /^data:/i.test(CUSTOM_ICON_URL)) {
+        img.onerror = () => { try { img.onerror = null; img.src = BUDDY_FALLBACK_URL; } catch(_) {} };
+        if (img.complete && img.naturalWidth === 0) { try { img.src = BUDDY_FALLBACK_URL; } catch(_) {} }
       }
       // Style font-based emblem (fallback only)
       if (emoji && emoji.style.display !== 'none') { emoji.style.fontFamily = "ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif"; emoji.style.fontStyle='italic'; emoji.style.fontWeight='600'; emoji.style.textShadow='0 1px 0 rgba(0,0,0,.25), 0 0 6px rgba(255,255,255,.25)'; }
@@ -599,8 +551,8 @@
       const dock = ui.shadow.getElementById('tmw-dock');
       if (!btn || !dock) return;
       btn.classList.add('tmw-irritated');
-      setTimeout(() => { try { btn.classList.remove('tmw-irritated'); } catch(_) {} }, 650);
-      rageBounce(dock, 7, 28);
+      setTimeout(() => { try { btn.classList.remove('tmw-irritated'); } catch(_) {} }, 520);
+      rageBounce(dock, 8, 26);
     } catch(_) {}
   }
 
@@ -610,17 +562,22 @@
     const origTransform = el.style.transform || 'translate(0,0)';
     const doHop = () => {
       if (canceled) return;
-      if (i++ >= hops) { el.style.transition = 'transform 140ms cubic-bezier(.2,.7,.2,1.2)'; el.style.transform = 'translate(0,0)'; return; }
+      if (i++ >= hops) {
+        el.style.transition = 'transform 110ms cubic-bezier(.2,.7,.2,1.2)';
+        el.style.transform = 'translate(0,0) scale(1.0, 0.96)';
+        setTimeout(() => { el.style.transform = 'translate(0,0)'; }, 70);
+        return;
+      }
       const angle = Math.random() * Math.PI * 2;
       const dist = 10 + Math.random() * radius;
       const x = Math.cos(angle) * dist;
       const y = -Math.abs(Math.sin(angle) * dist);
-      el.style.transition = 'transform 140ms cubic-bezier(.2,.7,.2,1.2)';
+      el.style.transition = 'transform 130ms cubic-bezier(.2,.7,.2,1.2)';
       el.style.transform = `translate(${x}px, ${y}px)`;
       setTimeout(() => {
-        el.style.transform = 'translate(0,0)';
-        setTimeout(doHop, 80);
-      }, 140);
+        el.style.transform = 'translate(0,0) scale(1.02, 0.96)';
+        setTimeout(() => { el.style.transform = 'translate(0,0)'; doHop(); }, 60);
+      }, 130);
     };
     // If user starts dragging, cancel bounce
     const onDown = () => { canceled = true; el.style.transform = origTransform; };
@@ -676,33 +633,9 @@
     });
   }
 
-  function applyDockShape() {
-    try {
-      const { dockShape } = getSettings();
-      const root = ui.shadow.getElementById('tmw-dock');
-      root.classList.remove('shape-circle','shape-tag','shape-signature');
-      root.classList.add(dockShape === 'tag' ? 'shape-tag' : (dockShape==='signature' ? 'shape-signature' : 'shape-circle'));
-      // restart signature stroke animation when switching to signature
-      if (dockShape === 'signature') {
-        try {
-          const s1 = ui.shadow.querySelector('#tmw-sig .s1');
-          const s2 = ui.shadow.querySelector('#tmw-sig .s2');
-          // restart by cloning nodes
-          if (s1 && s1.parentNode) { const c = s1.cloneNode(true); s1.parentNode.replaceChild(c, s1); }
-          if (s2 && s2.parentNode) { const c2 = s2.cloneNode(true); s2.parentNode.replaceChild(c2, s2); }
-        } catch(_) {}
-      }
-    } catch(_) {}
-  }
+  function applyDockShape() { try { const root = ui.shadow.getElementById('tmw-dock'); if (root) { root.classList.remove('shape-tag','shape-signature'); root.classList.add('shape-circle'); } } catch(_) {} }
 
-  function enforceBrand() {
-    try {
-      const s = getSettings();
-      if (s.dockShape !== 'circle') {
-        setSettings({ ...s, dockShape: 'circle' });
-      }
-    } catch(_) {}
-  }
+  function enforceBrand() { /* no-op: only circle used */ }
 
   function applyDockVisualState() {
     try {
@@ -718,21 +651,7 @@
     } catch(_) {}
   }
 
-  function flashSignature() {
-    try {
-      const dock = ui.shadow && ui.shadow.getElementById('tmw-dock');
-      if (!dock || !dock.classList.contains('shape-signature')) return;
-      // restart stroke animation by cloning paths
-      try {
-        const s1 = ui.shadow.querySelector('#tmw-sig .s1');
-        const s2 = ui.shadow.querySelector('#tmw-sig .s2');
-        if (s1 && s1.parentNode) { const c = s1.cloneNode(true); s1.parentNode.replaceChild(c, s1); }
-        if (s2 && s2.parentNode) { const c2 = s2.cloneNode(true); s2.parentNode.replaceChild(c2, s2); }
-      } catch(_) {}
-      dock.classList.add('sig-show');
-      setTimeout(()=>{ try { dock.classList.remove('sig-show'); } catch(_) {} }, 900);
-    } catch(_) {}
-  }
+  function flashSignature() { /* removed */ }
 
   function updateDockState() {
     try {
@@ -882,14 +801,7 @@
               <input id="ex-queue" type="number" min="750" max="5000" value="${getSettings().queueIntervalMs||1500}" />
             </div>
           </div>
-          <div class="tmw-row">
-            <div>
-              <label>Buddy cooldown (ms)</label>
-              <input id="ex-buddy-cooldown" type="number" min="0" max="2000" value="${Number(getSettings().buddyCooldownMs||DEFAULTS.buddyCooldownMs)}" />
-              <div class="muted">Delay before hover sound can restart.</div>
-            </div>
-            <div></div>
-          </div>
+          
           <div class="tmw-row">
             <div>
               <label>Sound volume</label>
@@ -897,24 +809,6 @@
                 <input id="ex-volume" type="range" min="0" max="100" value="${Math.round((getSettings().volume!=null?getSettings().volume:DEFAULTS.volume)*100)}" />
                 <span class="muted" id="ex-volume-val">${Math.round((getSettings().volume!=null?getSettings().volume:DEFAULTS.volume)*100)}%</span>
                 <button class="secondary" id="ex-test-sound" style="margin-left:6px;">Test</button>
-              </div>
-            </div>
-            <div></div>
-          </div>
-          <div class="tmw-row">
-            <div>
-              <label><input id="ex-buddy-sound" type="checkbox" ${getSettings().buddySound ? 'checked' : ''}/> Buddy hover sound</label>
-              <div class="muted">Toggle the muffled yell when hovering the buddy.</div>
-            </div>
-            <div></div>
-          </div>
-          <div class="tmw-row">
-            <div>
-              <label>Buddy volume</label>
-              <div>
-                <input id="ex-buddy-volume" type="range" min="0" max="100" value="${Math.round((getSettings().buddyVolume!=null?getSettings().buddyVolume:(getSettings().volume!=null?getSettings().volume:DEFAULTS.volume))*100)}" />
-                <span class="muted" id="ex-buddy-volume-val">${Math.round((getSettings().buddyVolume!=null?getSettings().buddyVolume:(getSettings().volume!=null?getSettings().volume:DEFAULTS.volume))*100)}%</span>
-                <button class="secondary" id="ex-test-buddy-sound" style="margin-left:6px;">Test</button>
               </div>
             </div>
             <div></div>
@@ -969,22 +863,6 @@
           } catch(_) {}
         });
       } catch(_){}
-      // Buddy volume label live update
-      try {
-        const vb = modal.querySelector('#ex-buddy-volume');
-        const vbl = modal.querySelector('#ex-buddy-volume-val');
-        vb.addEventListener('input', ()=>{ vbl.textContent = `${vb.value}%`; });
-      } catch(_){}
-      // Test buddy sound (preview)
-      try {
-        modal.querySelector('#ex-test-buddy-sound').addEventListener('click', ()=>{
-          try {
-            const vb = modal.querySelector('#ex-buddy-volume');
-            const level = Math.max(0, Math.min(1, Number(vb.value)/100));
-            buddyPreview(level);
-          } catch(_) {}
-        });
-      } catch(_){}
 
       // Clear Market Cache
       try {
@@ -1008,11 +886,7 @@
           const q = Number(modal.querySelector('#ex-queue').value)||1500;
           const base = String(modal.querySelector('#ex-api').value||API_BASE);
           const volPct = Math.max(0, Math.min(100, Number(modal.querySelector('#ex-volume').value)||Math.round((getSettings().volume||DEFAULTS.volume)*100)));
-          const budPct = Math.max(0, Math.min(100, Number(modal.querySelector('#ex-buddy-volume').value)||Math.round((getSettings().buddyVolume!=null?getSettings().buddyVolume:(getSettings().volume||DEFAULTS.volume))*100)));
-          const buddySound = !!modal.querySelector('#ex-buddy-sound').checked;
-          const dockShape = 'signature';
-          const buddyCooldownMs = Math.max(0, Math.min(2000, Number(modal.querySelector('#ex-buddy-cooldown').value)||DEFAULTS.buddyCooldownMs));
-          setSettings({ ...getSettings(), goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, queueIntervalMs: q, apiBase: base, volume: (volPct/100), buddyVolume: (budPct/100), buddySound, buddyCooldownMs, dockShape });
+          setSettings({ ...getSettings(), goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, queueIntervalMs: q, apiBase: base, volume: (volPct/100) });
           try { applyDockShape(); } catch(_) {}
           notify('Extra settings saved.'); modal.remove(); scanDomSoon();
         } catch(_) { notify('Failed to save settings'); }
@@ -1689,115 +1563,7 @@
     } catch(_) {}
   }
 
-  // -------- Buddy hover: muffled yell sound (procedural, no assets) --------
-  let __yell = null; // { ctx, nodes:[], timer, startedAt }
-  let __yellCooldownUntil = 0;
-  function startMuffledYell() {
-    try {
-      if (__yell) return; // already playing
-      if (Date.now() < __yellCooldownUntil) return; // tiny cooldown
-      const s = getSettings();
-      const vol = Math.max(0, Math.min(1, Number(s.buddyVolume != null ? s.buddyVolume : (s.volume != null ? s.volume : DEFAULTS.volume))));
-      const Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return;
-      const ctx = new Ctx();
-      const out = ctx.createGain(); out.gain.value = vol * 0.6; out.connect(ctx.destination);
-      // Noise source
-      const bufferSize = 2 * ctx.sampleRate;
-      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = noiseBuffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.5;
-      const noise = ctx.createBufferSource(); noise.buffer = noiseBuffer; noise.loop = true;
-      // Filters to make it "muffled voice"
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = 0.7;
-      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 120; hp.Q.value = 0.7;
-      // Add a weak fundamental oscillator for pitchy mumble
-      const osc = ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 140; // low voice
-      const oscGain = ctx.createGain(); oscGain.gain.value = 0.07;
-      // Envelope
-      const g = ctx.createGain(); g.gain.value = 0.0;
-      noise.connect(lp); lp.connect(hp); hp.connect(g); osc.connect(oscGain); oscGain.connect(g); g.connect(out);
-      noise.start(); osc.start();
-      // Stuttered envelope bursts while hovered
-      const pulse = () => {
-        const t = ctx.currentTime;
-        g.gain.cancelScheduledValues(t);
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.exponentialRampToValueAtTime(0.9, t + 0.04);
-        g.gain.exponentialRampToValueAtTime(0.25, t + 0.14);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
-        // Slight randomize pitch and filter for naturalness
-        osc.frequency.setTargetAtTime(120 + Math.random()*60, t, 0.05);
-        lp.frequency.setTargetAtTime(800 + Math.random()*400, t, 0.05);
-      };
-      pulse();
-      const timer = setInterval(pulse, 260);
-      __yell = { ctx, nodes: [noise, osc, lp, hp, g, out, oscGain], timer, startedAt: Date.now() };
-    } catch(_) {}
-  }
-  function stopMuffledYell() {
-    try {
-      if (!__yell) return;
-      clearInterval(__yell.timer);
-      const ctx = __yell.ctx; const nodes = __yell.nodes || [];
-      // quick release
-      try { const g = nodes[4]; if (g && g.gain && ctx) { const t = ctx.currentTime; g.gain.cancelScheduledValues(t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05); } } catch(_) {}
-      setTimeout(()=>{
-        try { nodes.forEach(n => { try { n.stop && n.stop(); } catch(_) {} try { n.disconnect && n.disconnect(); } catch(_) {} }); } catch(_) {}
-        try { ctx.close(); } catch(_) {}
-      }, 90);
-      __yell = null;
-      try { __yellCooldownUntil = Date.now() + (getSettings().buddyCooldownMs || DEFAULTS.buddyCooldownMs || 220); } catch(_) { __yellCooldownUntil = Date.now() + 220; }
-    } catch(_) {}
-  }
-
-  function maybeShowAudioHint() {
-    try {
-      if (!getSettings().buddySound) return;
-      if (GM_getValue(STORAGE_KEYS.buddyHint, 0)) return;
-      const rootRect = ui.dock.getBoundingClientRect();
-      const hint = document.createElement('div');
-      hint.className = 'tmw-hint';
-      hint.textContent = 'Tip: Hover buddy for a muffled yell. Click once if your browser asks to enable audio.';
-      ui.shadow.appendChild(hint);
-      const x = rootRect.left - 8;
-      const y = Math.max(0, rootRect.top - 42);
-      hint.style.left = `${x}px`;
-      hint.style.top = `${y}px`;
-      requestAnimationFrame(()=>hint.classList.add('show'));
-      const close = () => { try { hint.remove(); } catch(_) {} GM_setValue(STORAGE_KEYS.buddyHint, 1); };
-      setTimeout(close, 3800);
-      hint.addEventListener('click', close);
-    } catch(_) {}
-  }
-
-  function buddyPreview(level) {
-    try {
-      const Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return;
-      const ctx = new Ctx();
-      const out = ctx.createGain(); out.gain.value = Math.max(0, Math.min(1, level)) * 0.6; out.connect(ctx.destination);
-      const bufferSize = 2 * ctx.sampleRate;
-      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = noiseBuffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.5;
-      const noise = ctx.createBufferSource(); noise.buffer = noiseBuffer; noise.loop = true;
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = 0.7;
-      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 120; hp.Q.value = 0.7;
-      const osc = ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 140;
-      const oscGain = ctx.createGain(); oscGain.gain.value = 0.07;
-      const g = ctx.createGain(); g.gain.value = 0.0;
-      noise.connect(lp); lp.connect(hp); hp.connect(g); osc.connect(oscGain); oscGain.connect(g); g.connect(out);
-      noise.start(); osc.start();
-      const t = ctx.currentTime;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.9, t + 0.04);
-      g.gain.exponentialRampToValueAtTime(0.25, t + 0.14);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
-      setTimeout(()=>{
-        try { noise.stop(); osc.stop(); } catch(_) {}
-        try { ctx.close(); } catch(_) {}
-      }, 320);
-    } catch(_) {}
-  }
+  // (Buddy hover sound removed per owner request)
 
   async function annotateRow(info, itemsDict) {
     if (!info || !info.itemId || !info.price) return;
