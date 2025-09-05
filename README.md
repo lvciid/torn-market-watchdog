@@ -21,10 +21,11 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 - Overrides: Per‑item thresholds; ignore items.
 - Filters: “Show deals only”, “Hide overpriced”.
 - Color/UX: Colorblind palette; Minimal (badge‑only) mode; compact money; badge position (by name/price).
-- Quick actions: Small “⋯” next to badge → Watch, Ignore, Override, Clear.
-- Dock UX: Click toggles panel; status dot shows paused (red), cooling (amber), snoozed (blue). Right‑click menu (pause/snooze/filters/settings).
+- Quick actions: Small “⋯” next to badge → Watch, Ignore, Override, Clear, Mute 1h.
+- Dock UX: Click toggles panel; status dot shows paused (red), cooling (amber), snoozed (blue). Radial right‑click menu around the dock for pause/snooze/filters/settings; Extra settings open in a compact modal.
+- Progress ring: shows time to next monitor tick. Badge count shows new hits.
 - Shortcuts: Alt+W (panel), Alt+D (deals), Alt+O (hide overpriced), Alt+P (pause).
-- Icons: Built‑in light/dark “L” emblem, auto theme switch. Emblem is fixed in the script (not user‑configurable).
+- Icons: Built‑in light/dark LV emblem, auto theme switch. Emblem is fixed in the script (not user‑configurable).
 - TOS‑friendly: Single‑flight queue, conservative pacing, retries + cooldown, snooze; no automation.
 
 ## Settings Overview
@@ -38,7 +39,7 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 - Appearance: Minimal mode; Colorblind palette; Badge position; Compact badges.
 - Watchlist & Overrides: Add target price; per‑item thresholds; ignore item.
 - Notifications: Sound on hit; quiet hours; Open panel on hit.
-- Snooze: Pause scanning for 5/15/30m from the dock menu; clear snooze.
+- Snooze: Pause scanning for 5/15/30m from the radial dock menu; clear snooze. Progress ring shows time to next monitor check.
 - Dock icons: Emblem is set by the script owner in code and is not user‑configurable.
 
 ## Compatibility
@@ -63,7 +64,7 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 - No UI: ensure the script is enabled on torn.com and `@match` includes `*://*.torn.com/*`; hard‑refresh the page.
 - No update in Tampermonkey: installed script must use the Pages URL; bump `@version` (auto‑bumped on commit) and Check for updates.
 - “Access not allowed by @connect”: reset API base to `https://api.torn.com` or add the host to `@connect`.
-- Cooling down: after repeated failures, the queue cools down (~2 minutes). It resumes automatically.
+- Cooling down: after repeated failures or 429, the queue cools down (~2 minutes). It resumes automatically.
 
 ## Development
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Market Watchdog
 // @namespace    https://github.com/lvciid/torn-market-watchdog
-// @version      0.3.3
+// @version      0.3.4
 // @description  Highlights deals, warns on ripoffs, and alerts watchlist items using live Torn API data. Your API key stays local and never exposed.
 // @author       lvciid
 // @match        *://*.torn.com/*
@@ -34,9 +34,10 @@
   // -----------------------
   const API_BASE = 'https://api.torn.com';
   // Default dock icons as inline SVG data URIs
-  // Elegant script-style "L" emblem (light/dark variants), optimized for ~22px
-  const DOCK_ICON_DEFAULT_LIGHT = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f8fafc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M7 3v12.2c0 3.1 2 5 6.2 5H19' /><path d='M7 3c0-1.2 1-2 2.4-2' opacity='.4'/></svg>";
-  const DOCK_ICON_DEFAULT_DARK = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230e1a2b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M7 3v12.2c0 3.1 2 5 6.2 5H19' /><path d='M7 3c0-1.2 1-2 2.4-2' opacity='.4'/></svg>";
+  // Owner-controlled LV monogram (SVG data URIs), optimized for ~22px
+  // Light: near-white stroke; Dark: deep navy stroke
+  const DOCK_ICON_DEFAULT_LIGHT = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f8fafc' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 4v12h8' /><path d='M18 4l-4 12h8' /></svg>";
+  const DOCK_ICON_DEFAULT_DARK  = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230e1a2b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 4v12h8' /><path d='M18 4l-4 12h8' /></svg>";
   const STORAGE_KEYS = {
     apiKey: 'tmw_api_key',
     items: 'tmw_items_dict', // { ts: number, itemsById: {...}, idByName: {...} }
@@ -44,7 +45,9 @@
     watchlist: 'tmw_watchlist', // { [itemId]: { name: string, target: number } }
     settings: 'tmw_settings', // { goodThreshold, overpriceMultiplier, refreshSeconds, apiBase, dockIconLight, dockIconDark, minimal, colorblind, showOnlyDeals, hideOverpriced, alwaysConfirm, disableOverConfirm, sounds, quiet, compactBadges, badgePosition, openOnHit, snoozeUntil, monitorEnabled, monitorIntervalSec }
     monitor: 'tmw_monitor', // { [itemId]: { min:number|null, ts:number, alertedTs?:number } }
-    ui: 'tmw_ui_state', // { dock:{x:number,y:number}, open:boolean }
+    ui: 'tmw_ui_state', // { dock:{x:number,y:number}, open:boolean, apiCollapsed?:boolean }
+    mutes: 'tmw_mutes', // { [itemId]: number (muteUntilTs) }
+    hits: 'tmw_hits', // [ { ts, itemId, name, price, target } ]
   };
 
   // Defaults
@@ -87,7 +90,8 @@
       dockIconLight: DOCK_ICON_DEFAULT_LIGHT,
       dockIconDark: DOCK_ICON_DEFAULT_DARK,
       minimal: s.minimal != null ? !!s.minimal : DEFAULTS.minimal,
-      colorblind: s.colorblind != null ? !!s.colorblind : DEFAULTS.colorblind,
+      // Colorblind palette disabled by default per owner request
+      colorblind: false,
       showOnlyDeals: s.showOnlyDeals != null ? !!s.showOnlyDeals : DEFAULTS.showOnlyDeals,
       hideOverpriced: s.hideOverpriced != null ? !!s.hideOverpriced : DEFAULTS.hideOverpriced,
       alwaysConfirm: s.alwaysConfirm != null ? !!s.alwaysConfirm : DEFAULTS.alwaysConfirm,
@@ -109,6 +113,10 @@
 
   function getMonitorState() { return GM_getValue(STORAGE_KEYS.monitor, {}); }
   function setMonitorState(obj) { GM_setValue(STORAGE_KEYS.monitor, obj || {}); }
+  function getMutes() { return GM_getValue(STORAGE_KEYS.mutes, {}); }
+  function setMutes(m) { GM_setValue(STORAGE_KEYS.mutes, m||{}); }
+  function getHits() { return GM_getValue(STORAGE_KEYS.hits, []); }
+  function pushHit(hit) { try { const arr = getHits(); arr.unshift(hit); while (arr.length>20) arr.pop(); GM_setValue(STORAGE_KEYS.hits, arr); } catch(_) {} }
 
   function getApiKey() {
     return (GM_getValue(STORAGE_KEYS.apiKey, '') || '').trim();
@@ -208,10 +216,18 @@
   // API Layer with caching
   // -----------------------
   // Use GM_xmlhttpRequest to avoid page-level interception of requests containing the key.
+  let __lastReqTs = 0;
+  let __backoffUntil = 0;
   async function apiFetchJson(url) {
     const apikey = getApiKey();
     if (!apikey) throw new Error('No API key set');
     const s = getSettings();
+    // simple pacing
+    const nowTs = Date.now();
+    const spacing = Number(s.queueIntervalMs||1500);
+    const wait = Math.max(0, spacing - (nowTs - __lastReqTs));
+    if (wait>0) await sleep(wait);
+    if (__backoffUntil && Date.now() < __backoffUntil) { await sleep(__backoffUntil - Date.now()); }
     const base = (s.apiBase || API_BASE).replace(/\/$/, '');
     const rel = url.replace(/^https?:\/\/[^/]+/, '');
     const glue = rel.includes('?') ? '&' : '?';
@@ -223,6 +239,8 @@
         headers: { 'Accept': 'application/json' },
         anonymous: true,
         onload: (resp) => {
+          __lastReqTs = Date.now();
+          if (resp.status === 429) { __backoffUntil = Date.now() + 2*60*1000; notify('Cooling down after rate limit'); return reject(new Error('429')); }
           try {
             const j = JSON.parse(resp.responseText || 'null');
             if (!j) return reject(new Error('Empty response'));
@@ -230,8 +248,8 @@
             resolve(j);
           } catch (e) { reject(e); }
         },
-        onerror: () => reject(new Error('Network error')),
-        ontimeout: () => reject(new Error('Network timeout')),
+        onerror: () => { __lastReqTs = Date.now(); reject(new Error('Network error')); },
+        ontimeout: () => { __lastReqTs = Date.now(); reject(new Error('Network timeout')); },
       });
     });
   }
@@ -289,7 +307,7 @@
   // -----------------------
   // UI: Shadow DOM dock + panel (to avoid clashing with other scripts)
   // -----------------------
-  const ui = { host: null, shadow: null, dock: null, panel: null };
+  const ui = { host: null, shadow: null, dock: null, panel: null, isDragging:false, dragMoved:false, justDragged:false };
   function ensureUiShell() {
     if (ui.host) return;
     const host = document.createElement('div');
@@ -310,9 +328,12 @@
         .dock-btn.tmw-breathe { animation: tmw-breath 3.2s ease-in-out infinite alternate; }
         .dock-btn.tmw-pop { animation: tmw-pop 600ms ease; }
         .dock-btn.tmw-spin { animation: tmw-spin 480ms ease-out; }
+        .ring { position:absolute; inset:-3px; border-radius:50%; pointer-events:none; background: conic-gradient(#93c5fd 0deg, transparent 0deg); opacity:.6; }
+        .badge { position:absolute; bottom:-2px; left:-2px; min-width:14px; height:14px; padding:0 4px; border-radius:10px; background:#ef4444; color:#fff; font-size:10px; line-height:14px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 6px rgba(239,68,68,.7); }
         .dot { position:absolute; top:4px; right:4px; width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 6px rgba(16,185,129,.8); display:none; }
         .dot.show { display:block; }
         .panel { position:fixed; bottom:54px; right:0; width:340px; max-height:70vh; background:#111827; color:#e5e7eb; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.45); border:1px solid #1f2937; display:none; overflow:hidden; transform-origin: bottom right; }
+        .panel.tmw-active::before { content:""; position:absolute; inset:-1px; border-radius:12px; pointer-events:none; background: conic-gradient(from 0deg, rgba(147,197,253,.15), rgba(59,130,246,.25), rgba(147,197,253,.15)); filter: blur(10px); opacity:.35; animation: tmw-flicker 2600ms ease-in-out infinite, tmw-rotate 12s linear infinite; }
         .hdr { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #1f2937; }
         .ttl { font-weight:700; font-size:14px; letter-spacing:.2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .xbtn { background:none; border:none; color:#9ca3af; font-size:18px; cursor:pointer; }
@@ -335,18 +356,44 @@
         @keyframes tmw-pop { 0%{ transform: scale(1);} 40%{ transform: scale(1.08);} 100%{ transform: scale(1);} }
         @keyframes tmw-spin { from{ transform: rotate(0deg);} to{ transform: rotate(360deg);} }
         @keyframes tmw-panel-in { from { transform: translateY(8px) scale(0.98); opacity:0; } to { transform: translateY(0) scale(1); opacity:1; } }
+        @keyframes tmw-flicker { 0%{ opacity:.25; } 40%{ opacity:.45; } 55%{ opacity:.2; } 80%{ opacity:.4; } 100%{ opacity:.25; } }
+        @keyframes tmw-rotate { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
         .panel.tmw-anim-in { animation: tmw-panel-in 320ms cubic-bezier(.2,.7,.2,1); }
         @keyframes tmw-pulse { 0%{ transform: scale(1); opacity:.8;} 70%{ transform: scale(1.35); opacity:.3;} 100%{ transform: scale(1); opacity:.8;} }
         .idle-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#93c5fd; margin-left:8px; box-shadow:0 0 8px rgba(59,130,246,.6); animation: tmw-pulse 2.2s ease-in-out infinite; vertical-align:middle; }
-        @media (prefers-reduced-motion: reduce) { .dock-btn.tmw-breathe, .dock-btn.tmw-pop, .dock-btn.tmw-spin, .panel.tmw-anim-in, .idle-dot { animation: none !important; } }
+        @media (prefers-reduced-motion: reduce) { .dock-btn.tmw-breathe, .dock-btn.tmw-pop, .dock-btn.tmw-spin, .panel.tmw-anim-in, .idle-dot, .panel::before { animation: none !important; } }
         .statusbar { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 8px; }
         .pill { display:inline-block; padding:2px 6px; border-radius:999px; font-size:11px; background:#1f2937; color:#e5e7eb; border:1px solid #374151; }
         .pill.green{ background:#0f5132; border-color:#0f5132; color:#d1fae5; }
         .pill.amber{ background:#7c4a03; border-color:#7c4a03; color:#ffedd5; }
         .pill.blue{ background:#0b3b83; border-color:#0b3b83; color:#dbeafe; }
+        .tmw-modal { position:fixed; inset:0; z-index:2147483647; display:flex; align-items:center; justify-content:center; }
+        .tmw-backdrop { position:absolute; inset:0; background:rgba(0,0,0,.5); }
+        .tmw-sheet { position:relative; width:360px; max-width:90vw; background:#0b1220; color:#e5e7eb; border:1px solid #1f2937; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.45); padding:12px; }
+        .tmw-sheet h3 { margin:0 0 8px 0; font-size:14px; }
+        .tmw-row { display:flex; gap:8px; margin:6px 0; }
+        .tmw-row > div { flex:1; }
+        .tmw-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
+        .api-pill { background:#0f5132; border:1px solid #14532d; color:#d1fae5; display:inline-block; padding:6px 10px; border-radius:999px; font-size:12px; }
+        details.section { border:1px solid #1f2937; border-radius:10px; margin:8px 0; background:#0b1220; }
+        details.section > summary { cursor:pointer; padding:8px 10px; font-weight:600; color:#cbd5e1; outline:none; list-style:none; }
+        details.section > summary::-webkit-details-marker{ display:none; }
+        details.section[open] > summary { border-bottom:1px solid #1f2937; }
+        .sec-body { padding:10px; }
+        /* Radial side menu */
+        .tmw-radial { position:fixed; inset:0; z-index:2147483647; pointer-events:none; }
+        .tmw-radial .bg { position:absolute; inset:0; backdrop-filter: blur(0px); }
+        .tmw-radial .node { position:absolute; width:36px; height:36px; border-radius:50%; background:#111827; color:#e5e7eb; border:1px solid #1f2937; box-shadow:0 8px 24px rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; font-size:12px; pointer-events:auto; cursor:pointer; }
+        .tmw-radial .node:hover { background:#1f2937; }
       </style>
       <div class="dock" id="tmw-dock">
-        <button class="dock-btn" id="tmw-dock-btn" title="Open Torn Market Watchdog"><span id="tmw-emoji">🐶</span><img id="tmw-icon-img" class="icon-preview" style="display:none" alt="icon"/><span class="dot" id="tmw-dot"></span></button>
+        <button class="dock-btn" id="tmw-dock-btn" title="Open Torn Market Watchdog">
+          <span id="tmw-emoji">🐶</span>
+          <img id="tmw-icon-img" class="icon-preview" style="display:none" alt="icon"/>
+          <span class="ring" id="tmw-ring"></span>
+          <span class="dot" id="tmw-dot"></span>
+          <span class="badge" id="tmw-count" style="display:none">0</span>
+        </button>
       </div>
       <div class="panel" id="tmw-panel">
         <div class="hdr">
@@ -361,8 +408,15 @@
     ui.panel = shadow.getElementById('tmw-panel');
     const btn = shadow.getElementById('tmw-dock-btn');
     btn.classList.add('tmw-breathe');
-    btn.addEventListener('click', () => togglePanel(ui.panel.style.display !== 'block'));
-    btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openDockMenu(e); });
+    btn.addEventListener('click', (e) => {
+      if (ui.isDragging || ui.justDragged) { e.preventDefault(); return; }
+      if (e.shiftKey) {
+        const s = getSettings(); s.hideOverpriced = !s.hideOverpriced; setSettings(s); notify('Toggled hide-overpriced'); scanDomSoon(); return;
+      }
+      togglePanel(ui.panel.style.display !== 'block');
+    });
+    btn.addEventListener('dblclick', (e) => { e.preventDefault(); const s = getSettings(); s.showOnlyDeals = !s.showOnlyDeals; setSettings(s); notify('Toggled deals-only'); scanDomSoon(); });
+    btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openRadialMenu(e); });
     shadow.getElementById('tmw-close').addEventListener('click', () => togglePanel(false));
     enableDockDrag();
     GM_registerMenuCommand('TMW: Open Settings', () => togglePanel(true));
@@ -375,14 +429,13 @@
     } catch(_) {}
     // Keyboard shortcuts
     window.addEventListener('keydown', (ev) => {
+      // Ignore when typing in inputs or inside our UI
+      const tag = (ev.target && ev.target.tagName) ? ev.target.tagName.toLowerCase() : '';
+      if (tag === 'input' || tag === 'textarea' || (ev.target && (ev.target.isContentEditable || ui.shadow.contains(ev.target)))) return;
       if (ev.altKey && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey && (ev.key === 'w' || ev.key === 'W')) {
         ev.preventDefault(); togglePanel(ui.panel.style.display !== 'block');
       } else if (ev.key === 'Escape' && ui.panel.style.display === 'block') {
         togglePanel(false);
-      } else if (ev.altKey && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey && (ev.key === 'd' || ev.key === 'D')) {
-        const s = getSettings(); s.showOnlyDeals = !s.showOnlyDeals; setSettings(s); notify('Toggled deals-only filter'); scanDomSoon();
-      } else if (ev.altKey && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey && (ev.key === 'o' || ev.key === 'O')) {
-        const s = getSettings(); s.hideOverpriced = !s.hideOverpriced; setSettings(s); notify('Toggled hide-overpriced'); scanDomSoon();
       } else if (ev.altKey && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey && (ev.key === 'p' || ev.key === 'P')) {
         const s = getSettings(); s.paused = !s.paused; setSettings(s); notify(s.paused?'Paused':'Resumed');
       }
@@ -398,10 +451,10 @@
       const emoji = ui.shadow.getElementById('tmw-emoji');
       const img = ui.shadow.getElementById('tmw-icon-img');
       if (!dockIcon || dockIcon === '🐶') {
-        emoji.textContent = '🐶';
-        emoji.style.display = '';
-        img.style.display = 'none';
-        img.removeAttribute('src');
+        // default to owner-provided LV SVG
+        img.src = prefersDark ? DOCK_ICON_DEFAULT_DARK : DOCK_ICON_DEFAULT_LIGHT;
+        img.style.display = '';
+        emoji.style.display = 'none';
       } else if (/^(https?:|data:)/i.test(dockIcon)) {
         img.src = dockIcon;
         img.style.display = '';
@@ -413,17 +466,19 @@
         img.style.display = 'none';
         img.removeAttribute('src');
       }
+      // Style font-based emblem (fallback only)
+      if (emoji && emoji.style.display !== 'none') { emoji.style.fontFamily = "ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif"; emoji.style.fontStyle='italic'; emoji.style.fontWeight='600'; emoji.style.textShadow='0 1px 0 rgba(0,0,0,.25), 0 0 6px rgba(255,255,255,.25)'; }
     } catch(_) {}
   }
 
   function updateDockState() {
     try {
       const dot = ui.shadow.getElementById('tmw-dot');
+      const ring = ui.shadow.getElementById('tmw-ring');
+      const countEl = ui.shadow.getElementById('tmw-count');
       const s = getSettings();
-      // Cooling indicator (legacy queue state). If a queue module exposes pausedUntil, show amber dot.
-      // In current build, the request queue runs inline; treat as not cooling.
-      const cooling = false;
       const snoozed = s.snoozeUntil && Date.now() < s.snoozeUntil;
+      const cooling = (__backoffUntil && Date.now() < __backoffUntil);
       dot.classList.remove('show');
       if (s.paused) {
         dot.style.background = '#ef4444'; // red
@@ -444,6 +499,26 @@
       } else {
         ui.shadow.getElementById('tmw-dock-btn').title = 'Open Torn Market Watchdog';
       }
+      // Progress ring for monitor
+      if (ring) {
+        let ang = 0;
+        if (s.monitorEnabled) {
+          const wl = getWatchlist(); const ids = Object.keys(wl);
+          const st = getMonitorState(); const iv = Math.max(10, s.monitorIntervalSec||30)*1000;
+          if (ids.length) {
+            let minRemain = iv;
+            for (const id of ids) {
+              const last = st[id]?.ts||0; const age = Date.now()-last; const remain = Math.max(0, iv - age);
+              if (remain < minRemain) minRemain = remain;
+            }
+            const pct = 1 - (minRemain/iv);
+            ang = Math.max(0, Math.min(360, Math.round(pct*360)));
+          }
+        }
+        ring.style.background = `conic-gradient(#93c5fd ${ang}deg, transparent 0deg)`;
+        ring.style.opacity = s.monitorEnabled ? '.65' : '0';
+      }
+      if (countEl && (countEl.textContent||'0') === '0') countEl.style.display = 'none';
     } catch (_) {}
   }
 
@@ -467,6 +542,7 @@
         <div class="tmw-menu-item" data-act="toggle-deals">${dealsLabel}</div>
         <div class="tmw-menu-item" data-act="toggle-over">${overLabel}</div>
         <div class="tmw-menu-item" data-act="open-settings">Open settings</div>
+        <div class="tmw-menu-item" data-act="extras">Extra settings…</div>
       `;
       document.body.appendChild(menu);
       const x = (ev.clientX || 0) + window.scrollX;
@@ -487,8 +563,120 @@
         else if (act === 'toggle-deals') { st.showOnlyDeals = !st.showOnlyDeals; setSettings(st); }
         else if (act === 'toggle-over') { st.hideOverpriced = !st.hideOverpriced; setSettings(st); }
         else if (act === 'open-settings') { togglePanel(true); }
+        else if (act === 'extras') { openExtraSettings(); }
         closeQuickMenu(); updateDockState(); scanDomSoon();
       });
+    } catch(_) {}
+  }
+
+  function openExtraSettings() {
+    try {
+      // Remove any existing
+      const old = ui.shadow.getElementById('tmw-modal'); if (old) old.remove();
+      const modal = document.createElement('div'); modal.id='tmw-modal'; modal.className='tmw-modal';
+      modal.innerHTML = `
+        <div class="tmw-backdrop"></div>
+        <div class="tmw-sheet">
+          <h3>Extra Settings</h3>
+          <div class="tmw-row">
+            <div>
+              <label>Deal threshold</label>
+              <input id="ex-good" type="number" step="0.01" min="0.5" max="1.0" value="${getSettings().goodThreshold}" />
+            </div>
+            <div>
+              <label>Overprice multiplier</label>
+              <input id="ex-over" type="number" step="0.05" min="1.2" max="5.0" value="${getSettings().overpriceMultiplier}" />
+            </div>
+          </div>
+          <div class="tmw-row">
+            <div>
+              <label>Auto-refresh (s)</label>
+              <input id="ex-refresh" type="number" min="15" max="300" value="${getSettings().refreshSeconds}" />
+            </div>
+            <div>
+              <label>Queue spacing (ms)</label>
+              <input id="ex-queue" type="number" min="750" max="5000" value="${getSettings().queueIntervalMs||1500}" />
+            </div>
+          </div>
+          <div class="tmw-row">
+            <div>
+              <label>API base</label>
+              <input id="ex-api" type="text" value="${escapeHtml(getSettings().apiBase||'')}" />
+            </div>
+          </div>
+          <div class="tmw-actions">
+            <button id="ex-cancel" class="secondary">Cancel</button>
+            <button id="ex-save" class="primary">Save</button>
+          </div>
+        </div>
+      `;
+      ui.shadow.appendChild(modal);
+      modal.querySelector('.tmw-backdrop').addEventListener('click', ()=> modal.remove());
+      modal.querySelector('#ex-cancel').addEventListener('click', ()=> modal.remove());
+      modal.querySelector('#ex-save').addEventListener('click', ()=>{
+        try {
+          const good = Number(modal.querySelector('#ex-good').value);
+          const over = Number(modal.querySelector('#ex-over').value);
+          const rf = Number(modal.querySelector('#ex-refresh').value);
+          const q = Number(modal.querySelector('#ex-queue').value)||1500;
+          const base = String(modal.querySelector('#ex-api').value||API_BASE);
+          setSettings({ ...getSettings(), goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, queueIntervalMs: q, apiBase: base });
+          notify('Extra settings saved.'); modal.remove(); scanDomSoon();
+        } catch(_) { notify('Failed to save settings'); }
+      });
+    } catch(_) {}
+  }
+
+  function openRadialMenu(ev) {
+    try {
+      // remove existing menus
+      closeQuickMenu();
+      const old = ui.shadow.getElementById('tmw-radial'); if (old) old.remove();
+      const root = document.createElement('div'); root.id='tmw-radial'; root.className='tmw-radial';
+      root.innerHTML = `<div class="bg"></div>`;
+      ui.shadow.appendChild(root);
+
+      const center = ui.shadow.getElementById('tmw-dock-btn').getBoundingClientRect();
+      const cx = center.left + center.width/2 + window.scrollX;
+      const cy = center.top + center.height/2 + window.scrollY;
+      const radius = 70;
+      // Define nodes: [label, act]
+      const s = getSettings();
+      const items = [
+        { t: s.paused? '▶' : '⏸', a: 'toggle-pause' },
+        { t: '5m', a: 'snooze-5' },
+        { t: '15m', a: 'snooze-15' },
+        { t: '30m', a: 'snooze-30' },
+        { t: s.showOnlyDeals? '✓D' : 'D', a: 'toggle-deals' },
+        { t: s.hideOverpriced? '✓O' : 'O', a: 'toggle-over' },
+        { t: '⚙', a: 'open-settings' },
+        { t: '⋯', a: 'extras' },
+      ];
+      items.forEach((it, i) => {
+        const node = document.createElement('div'); node.className='node'; node.textContent = it.t; node.setAttribute('data-act', it.a);
+        const angle = (Math.PI * 2) * (i / items.length) - Math.PI/2;
+        const x = cx + Math.cos(angle)*radius; const y = cy + Math.sin(angle)*radius;
+        node.style.left = `${x-18}px`; node.style.top = `${y-18}px`;
+        root.appendChild(node);
+      });
+      const close = () => { try { root.remove(); } catch(_) {} };
+      root.querySelector('.bg').addEventListener('click', close);
+      root.addEventListener('click', (e)=>{
+        const act = e.target.getAttribute && e.target.getAttribute('data-act'); if (!act) return;
+        const st = getSettings();
+        if (act === 'toggle-pause') { st.paused = !st.paused; setSettings(st); notify(st.paused?'Paused':'Resumed'); }
+        else if (act === 'snooze-5') { st.snoozeUntil = Date.now() + 5*60*1000; setSettings(st); notify('Snoozed 5m'); }
+        else if (act === 'snooze-15') { st.snoozeUntil = Date.now() + 15*60*1000; setSettings(st); notify('Snoozed 15m'); }
+        else if (act === 'snooze-30') { st.snoozeUntil = Date.now() + 30*60*1000; setSettings(st); notify('Snoozed 30m'); }
+        else if (act === 'toggle-deals') { st.showOnlyDeals = !st.showOnlyDeals; setSettings(st); }
+        else if (act === 'toggle-over') { st.hideOverpriced = !st.hideOverpriced; setSettings(st); }
+        else if (act === 'open-settings') { togglePanel(true); }
+        else if (act === 'extras') { openExtraSettings(); }
+        close(); updateDockState(); scanDomSoon();
+      });
+      // Close on ESC
+      const onKey = (ke) => { if (ke.key === 'Escape') { close(); window.removeEventListener('keydown', onKey, true); } };
+      window.addEventListener('keydown', onKey, true);
     } catch(_) {}
   }
 
@@ -503,8 +691,11 @@
     if (open) {
       renderSettingsPanel();
       try { const st = GM_getValue(STORAGE_KEYS.ui, { scrollTop: 0 }).scrollTop || 0; requestAnimationFrame(()=>{ const cnt = ui.shadow.getElementById('tmw-cnt'); if (cnt) cnt.scrollTop = st; }); } catch(_) {}
-      try { ui.panel.classList.add('tmw-anim-in'); setTimeout(()=>ui.panel.classList.remove('tmw-anim-in'), 350); } catch(_) {}
+      try { ui.panel.classList.add('tmw-anim-in'); ui.panel.classList.add('tmw-active'); setTimeout(()=>ui.panel.classList.remove('tmw-anim-in'), 350); } catch(_) {}
       try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-spin'); setTimeout(()=>b.classList.remove('tmw-spin'), 520); } catch(_) {}
+      try { const c = ui.shadow.getElementById('tmw-count'); if (c) { c.textContent = '0'; c.style.display='none'; } } catch(_) {}
+    } else {
+      try { ui.panel.classList.remove('tmw-active'); } catch(_) {}
     }
     try { const b = ui.shadow.getElementById('tmw-dock-btn'); if (b) b.setAttribute('aria-expanded', open ? 'true' : 'false'); } catch(_) {}
   }
@@ -515,7 +706,7 @@
     const state = GM_getValue(STORAGE_KEYS.ui, { dock: { x: 16, y: 16 }, open: false });
     positionDock(state.dock?.x ?? 16, state.dock?.y ?? 16);
     const onDown = (e) => {
-      dragging = true;
+      dragging = true; ui.isDragging = true; ui.dragMoved = false;
       startX = e.clientX; startY = e.clientY;
       const r = ui.dock.getBoundingClientRect();
       orig = { x: window.innerWidth - r.right, y: window.innerHeight - r.bottom };
@@ -524,17 +715,19 @@
     const onMove = (e) => {
       if (!dragging) return;
       const dx = e.clientX - startX; const dy = e.clientY - startY;
+      if (!ui.dragMoved && Math.hypot(dx, dy) > 3) ui.dragMoved = true;
       const nx = Math.max(4, Math.min(orig.x - dx, window.innerWidth - 50));
       const ny = Math.max(4, Math.min(orig.y - dy, window.innerHeight - 50));
       positionDock(nx, ny);
     };
     const onUp = () => {
       if (!dragging) return;
-      dragging = false;
+      dragging = false; ui.isDragging = false;
       const r = ui.dock.getBoundingClientRect();
       const x = window.innerWidth - r.right; const y = window.innerHeight - r.bottom;
       const state2 = GM_getValue(STORAGE_KEYS.ui, { dock: { x: 16, y: 16 }, open: false });
       state2.dock = { x, y }; GM_setValue(STORAGE_KEYS.ui, state2);
+      if (ui.dragMoved) { ui.justDragged = true; setTimeout(() => { ui.justDragged = false; }, 200); }
     };
     btn.addEventListener('mousedown', onDown);
     window.addEventListener('mousemove', onMove);
@@ -557,6 +750,7 @@
     const cnt = ui.shadow.getElementById('tmw-cnt');
     const s = getSettings();
     const hasKey = !!getApiKey();
+    const uiState = GM_getValue(STORAGE_KEYS.ui, { apiCollapsed: true });
     const nowMs = Date.now();
     const snoozeLeft = s.snoozeUntil && nowMs < s.snoozeUntil ? Math.max(0, Math.round((s.snoozeUntil - nowMs)/60000)) : 0;
     cnt.innerHTML = `
@@ -570,13 +764,17 @@
           ${s.colorblind?`<span class=\"pill\">CB palette</span>`:''}
         </div>
         <label>API Key (Limited Access)</label>
-        <div class="row">
-          <input id="tmw-api-key" type="password" placeholder="${hasKey ? 'Key is set — enter to replace' : 'Enter your Torn API key'}" />
-          <button class="secondary" id="tmw-save-key">${hasKey ? 'Update' : 'Save'}</button>
-          <button class="secondary" id="tmw-clear-key">Clear</button>
-        </div>
-        <div class="muted">Your key is stored locally in Tampermonkey and never exposed to the page or other scripts.</div>
-        <div class="muted" id="tmw-key-status">Status: ${hasKey ? 'Key set ✓' : 'Not set'}</div>
+        ${hasKey && uiState.apiCollapsed ? `
+          <div class="api-pill">API active ✓ • <span class="tmw-link" id="tmw-api-change">Change</span></div>
+        ` : `
+          <div class="row">
+            <input id="tmw-api-key" type="text" placeholder="${hasKey ? 'Key is set — enter to replace' : 'Enter your Torn API key'}" autocomplete="new-password" name="tmw_key_${Date.now()}" style="-webkit-text-security: disc; text-security: disc;" />
+            <button class="secondary" id="tmw-save-key">${hasKey ? 'Update' : 'Save'}</button>
+            ${hasKey?'<button class="secondary" id="tmw-clear-key">Clear</button>':''}
+          </div>
+          <div class="muted">Your key is stored locally in Tampermonkey and never exposed to the page or other scripts.</div>
+          <div class="muted" id="tmw-key-status">Status: ${hasKey ? 'Key set ✓' : 'Not set'}</div>
+        `}
 
         <div class="row" style="margin-top:8px;">
           <div>
@@ -604,7 +802,7 @@
         </div>
         <div class="row">
           <label><input type="checkbox" id="tmw-minimal" ${s.minimal ? 'checked' : ''}/> Minimal highlight (badges only)</label>
-          <label><input type="checkbox" id="tmw-colorblind" ${s.colorblind ? 'checked' : ''}/> Colorblind-friendly palette</label>
+          <label style="display:none"><input type="checkbox" id="tmw-colorblind" ${s.colorblind ? 'checked' : ''}/> Colorblind-friendly palette</label>
           <label><input type="checkbox" id="tmw-show-deals" ${s.showOnlyDeals ? 'checked' : ''}/> Show deals only</label>
           <label><input type="checkbox" id="tmw-hide-over" ${s.hideOverpriced ? 'checked' : ''}/> Hide overpriced</label>
           <div class="actions"><button id="tmw-clear-cache" class="secondary">Clear Market Cache</button></div>
@@ -678,7 +876,11 @@
       </div>
     `;
 
-    ui.shadow.getElementById('tmw-save-key').onclick = () => {
+    const apiChange = ui.shadow.getElementById('tmw-api-change');
+    if (apiChange) apiChange.onclick = () => { try { const st = GM_getValue(STORAGE_KEYS.ui, { apiCollapsed:true }); st.apiCollapsed = false; GM_setValue(STORAGE_KEYS.ui, st); renderSettingsPanel(); } catch(_) {} };
+
+    const saveKeyBtn = ui.shadow.getElementById('tmw-save-key');
+    if (saveKeyBtn) saveKeyBtn.onclick = async () => {
       const val = ui.shadow.getElementById('tmw-api-key').value.trim();
       if (!val) { notify('Enter a valid API key to save.'); return; }
       setApiKey(val);
@@ -686,12 +888,16 @@
       notify('API key saved securely.');
       removeKeyBanner();
       const st = ui.shadow.getElementById('tmw-key-status'); if (st) st.textContent = 'Status: Key set ✓';
+      try { const sst = GM_getValue(STORAGE_KEYS.ui, { apiCollapsed:true }); sst.apiCollapsed = true; GM_setValue(STORAGE_KEYS.ui, sst); } catch(_) {}
+      // quick validation
+      try { await loadItemsDict(true); notify('API key validated.'); } catch(_) { notify('API key may be invalid.'); }
       try { scanDomSoon(); } catch(_) {}
+      renderSettingsPanel();
     };
     // Reduce browser password manager prompts
     try {
       const apiInput = ui.shadow.getElementById('tmw-api-key');
-      apiInput.setAttribute('autocomplete','off');
+      apiInput.setAttribute('autocomplete','new-password');
       apiInput.setAttribute('autocapitalize','off');
       apiInput.setAttribute('autocorrect','off');
       apiInput.setAttribute('spellcheck','false');
@@ -703,11 +909,14 @@
       apiInput.readOnly = true;
       apiInput.addEventListener('focus', () => { apiInput.readOnly = false; }, { once: true });
     } catch(_) {}
-    ui.shadow.getElementById('tmw-clear-key').onclick = () => {
+    const clearKeyBtn = ui.shadow.getElementById('tmw-clear-key');
+    if (clearKeyBtn) clearKeyBtn.onclick = () => {
       if (!confirm('Clear the saved API key?')) return;
       setApiKey('');
       notify('API key cleared.');
       const st = ui.shadow.getElementById('tmw-key-status'); if (st) st.textContent = 'Status: Not set';
+      try { const sst = GM_getValue(STORAGE_KEYS.ui, { apiCollapsed:false }); sst.apiCollapsed = false; GM_setValue(STORAGE_KEYS.ui, sst); } catch(_) {}
+      renderSettingsPanel();
     };
 
     ui.shadow.getElementById('tmw-save').onclick = () => {
@@ -829,8 +1038,17 @@
       if (!items.length) { el.innerHTML = '<div class="item muted">No watchlist items to monitor.</div>'; return; }
       el.innerHTML = items.map(({id,name,target,min,ts}) => {
         const age = ts? Math.max(0, Math.round((Date.now()-ts)/1000))+'s ago' : '—';
-        return `<div class="item"><div>${escapeHtml(name)} <span class="muted">≤ ${fmtMoney(target)}</span></div><div class="muted">min: ${min!=null?fmtMoney(min):'—'} • ${age}</div></div>`;
+        const link = `<a class=\"tmw-link tmw-goto\" data-id=\"${id}\" data-p=\"${min || ''}\">[Market]</a>`;
+        const delta = (min!=null && target)? ` • Δ ${fmtMoney(min - target)}` : '';
+        return `<div class="item"><div>${escapeHtml(name)} <span class="muted">≤ ${fmtMoney(target)}</span></div><div class="muted">min: ${min!=null?fmtMoney(min):'—'}${delta} • ${age} ${min?link:''}</div></div>`;
       }).join('');
+      el.querySelectorAll('.tmw-goto').forEach(a => {
+        a.addEventListener('click', (e)=>{
+          e.preventDefault(); const id=a.getAttribute('data-id'); const p=a.getAttribute('data-p');
+          try { sessionStorage.setItem('tmw_jump', JSON.stringify({ itemId: Number(id), markPrice: Number(p)||null, ts: Date.now() })); } catch(_) {}
+          location.assign(`https://www.torn.com/item.php?XID=${id}`);
+        });
+      });
     } catch(_) {}
   }
 
@@ -1098,6 +1316,7 @@
         const badgeTxt = `${labelName} ${fairStr}${countStr}`;
         // classify
         const isGood = info.price <= fair * s.goodThreshold;
+        const isStrong = info.price <= fair * Math.min(0.8, s.goodThreshold || 0.9);
         const isBad = info.price >= fair * s.overpriceMultiplier;
         const goodClass = s.colorblind ? 'tmw-good-cb' : 'tmw-good';
         const badClass = s.colorblind ? 'tmw-bad-cb' : 'tmw-bad';
@@ -1108,7 +1327,8 @@
           if (isGood) info.row.classList.add(goodClass);
           if (isBad) info.row.classList.add(badClass);
         }
-        const label = isGood ? ' • deal' : (isBad ? ' • over' : '');
+        if (isStrong) fairBlock.classList.add('tmw-strong');
+        const label = isStrong ? ' • strong' : (isGood ? ' • deal' : (isBad ? ' • over' : ''));
         fairBlock.textContent = badgeTxt + label;
         // quick actions menu
         attachQuickActions(fairBlock, info);
@@ -1116,11 +1336,26 @@
         const wl = getWatchlist();
         const watched = wl[info.itemId];
         if (watched && info.price <= watched.target) {
+          const mutes = getMutes(); const muteUntil = Number(mutes[info.itemId]||0);
+          const muted = muteUntil && Date.now() < muteUntil;
           info.row.classList.add('tmw-watch');
           fairBlock.textContent = `${badgeTxt}${label} • watch hit ≤ ${fmtMoney(watched.target)}`;
-          notify(`Deal found: ${watched.name || info.itemName} at ${fmtMoney(info.price)} (target ≤ ${fmtMoney(watched.target)})`);
-          try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-pop'); setTimeout(()=>b.classList.remove('tmw-pop'), 650); } catch(_) {}
-          try { playHitSound(); } catch(_) {}
+          // add quick [Market] link
+          try {
+            const link = document.createElement('a'); link.textContent=' [Market]'; link.className='tmw-link'; link.href=`https://www.torn.com/item.php?XID=${info.itemId}`;
+            link.addEventListener('click',(ev)=>{ ev.preventDefault(); try{ sessionStorage.setItem('tmw_jump', JSON.stringify({ itemId: info.itemId, markPrice: info.price, ts: Date.now() })); }catch(_){}; location.assign(link.href); });
+            fairBlock.appendChild(link);
+            const mute = document.createElement('a'); mute.textContent=' [Mute 1h]'; mute.className='tmw-link'; mute.href='#';
+            mute.addEventListener('click',(ev)=>{ ev.preventDefault(); const mu = getMutes(); mu[info.itemId] = Date.now()+60*60*1000; setMutes(mu); notify('Muted alerts for 1h'); });
+            fairBlock.appendChild(mute);
+          } catch(_){}
+          pushHit({ ts: Date.now(), itemId: info.itemId, name: watched.name || info.itemName, price: info.price, target: watched.target });
+          if (!muted) {
+            notify(`Deal found: ${watched.name || info.itemName} at ${fmtMoney(info.price)} (target ≤ ${fmtMoney(watched.target)})`);
+            try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-pop'); setTimeout(()=>b.classList.remove('tmw-pop'), 650); } catch(_) {}
+            try { playHitSound(); } catch(_) {}
+            try { const c = ui.shadow.getElementById('tmw-count'); if (c && ui.panel && ui.panel.style.display!=='block') { c.textContent = String((Number(c.textContent||'0')||0)+1); c.style.display=''; } } catch(_) {}
+          }
         }
 
         // filtering (reuse s2 from above)
@@ -1186,11 +1421,43 @@
     // Restore panel open state
     const state = GM_getValue(STORAGE_KEYS.ui, { open: false });
     if (state.open) togglePanel(true);
+    // Apply jump marker if present (item.php landing)
+    try { applyJumpMarker(); } catch(_) {}
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
     init();
   } else {
     window.addEventListener('DOMContentLoaded', init);
+  }
+  
+  function getXidFromLocation() {
+    try { const m = location.search.match(/XID=(\d+)/i); if (m) return Number(m[1]); } catch(_) {}
+    return null;
+  }
+  
+  function applyJumpMarker() {
+    const dataRaw = sessionStorage.getItem('tmw_jump'); if (!dataRaw) return;
+    let data=null; try { data = JSON.parse(dataRaw); } catch(_) { sessionStorage.removeItem('tmw_jump'); return; }
+    if (!data || !data.itemId || (Date.now()- (data.ts||0) > 90*1000)) { sessionStorage.removeItem('tmw_jump'); return; }
+    const xid = getXidFromLocation(); if (!xid || xid !== Number(data.itemId)) return;
+    // Try to find rows with prices; highlight the lowest or matching price
+    const candidates = Array.from(document.querySelectorAll('li, tr, .item, .market-item, .bazaar-item, .table-row'));
+    let bestEl = null; let bestPrice = Infinity;
+    for (const row of candidates) {
+      const moneyMatches = (row.textContent||'').match(/\$\s?\d[\d,]*/g);
+      if (!moneyMatches) continue;
+      const price = Math.min(...moneyMatches.map(parseMoney).filter(Boolean));
+      if (!isFinite(price)) continue;
+      if (data.markPrice && Math.abs(price - data.markPrice) < 1) { bestEl = row; bestPrice = price; break; }
+      if (price < bestPrice) { bestPrice = price; bestEl = row; }
+    }
+    if (bestEl) {
+      try { bestEl.classList.add('tmw-target'); bestEl.scrollIntoView({ behavior:'smooth', block:'center'}); } catch(_) {}
+      // expire marker sooner
+      setTimeout(()=>{ try { sessionStorage.removeItem('tmw_jump'); } catch(_) {} }, 60*1000);
+      // remove highlight after some seconds
+      setTimeout(()=>{ try { bestEl.classList.remove('tmw-target'); } catch(_) {} }, 10*1000);
+    }
   }
 })();
