@@ -25,7 +25,7 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 - Quick actions: Small “⋯” next to badge → Watch, Ignore, Override, Clear.
 - Dock UX: Click toggles panel; status dot shows paused (red), cooling (amber), snoozed (blue). Right‑click menu (pause/snooze/filters/settings).
 - Shortcuts: Alt+W (panel), Alt+D (deals), Alt+O (hide overpriced), Alt+P (pause).
-- Icons: Separate light/dark dock icons (emoji or URL/data URI); built‑in fancy “L” defaults; auto theme switch.
+- Icons: Built‑in light/dark “L” emblem, auto theme switch. Emblem is fixed in the script (not user‑configurable).
 - TOS‑friendly: Single‑flight queue, conservative pacing, retries + cooldown, snooze; no automation.
 
 ## Settings Overview
@@ -40,7 +40,7 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 - Watchlist & Overrides: Add target price; per‑item thresholds; ignore item.
 - Notifications: Sound on hit; quiet hours; Open panel on hit.
 - Snooze: Pause scanning for 5/15/30m from the dock menu; clear snooze.
-- Dock icons: Separate light/dark icons (emoji/URL/data URI) or keep defaults; example in `assets/logo.svg`.
+- Dock icons: Emblem is set by the script owner in code and is not user‑configurable.
 
 ## Compatibility
 

@@ -32,15 +32,16 @@
   // -----------------------
   const API_BASE = 'https://api.torn.com';
   // Default dock icons as inline SVG data URIs
-  // Fancy "L" monogram (curved foot) — light/dark variants
-  const DOCK_ICON_DEFAULT_LIGHT = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f8fafc' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M8 3v12q0 3 3 3h6' /><path d='M17 18c-2 .8-3.8 1-6 .9' opacity='.6'/></svg>";
-  const DOCK_ICON_DEFAULT_DARK = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230e1a2b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M8 3v12q0 3 3 3h6' /><path d='M17 18c-2 .8-3.8 1-6 .9' opacity='.6'/></svg>";
+  // Elegant script-style "L" emblem (light/dark variants), optimized for ~22px
+  const DOCK_ICON_DEFAULT_LIGHT = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f8fafc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M7 3v12.2c0 3.1 2 5 6.2 5H19' /><path d='M7 3c0-1.2 1-2 2.4-2' opacity='.4'/></svg>";
+  const DOCK_ICON_DEFAULT_DARK = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230e1a2b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M7 3v12.2c0 3.1 2 5 6.2 5H19' /><path d='M7 3c0-1.2 1-2 2.4-2' opacity='.4'/></svg>";
   const STORAGE_KEYS = {
     apiKey: 'tmw_api_key',
     items: 'tmw_items_dict', // { ts: number, itemsById: {...}, idByName: {...} }
     marketCache: 'tmw_market_cache', // { [itemId]: { ts: number, median: number, min: number, sample: number } }
     watchlist: 'tmw_watchlist', // { [itemId]: { name: string, target: number } }
-    settings: 'tmw_settings', // { goodThreshold, overpriceMultiplier, refreshSeconds, apiBase, dockIconLight, dockIconDark, minimal, colorblind, showOnlyDeals, hideOverpriced, alwaysConfirm, disableOverConfirm, sounds, quiet, compactBadges, badgePosition, openOnHit, snoozeUntil }
+    settings: 'tmw_settings', // { goodThreshold, overpriceMultiplier, refreshSeconds, apiBase, dockIconLight, dockIconDark, minimal, colorblind, showOnlyDeals, hideOverpriced, alwaysConfirm, disableOverConfirm, sounds, quiet, compactBadges, badgePosition, openOnHit, snoozeUntil, monitorEnabled, monitorIntervalSec }
+    monitor: 'tmw_monitor', // { [itemId]: { min:number|null, ts:number, alertedTs?:number } }
     ui: 'tmw_ui_state', // { dock:{x:number,y:number}, open:boolean }
   };
 
@@ -63,6 +64,8 @@
     badgePosition: 'name', // or 'price'
     openOnHit: false,
     snoozeUntil: 0,
+    monitorEnabled: false,
+    monitorIntervalSec: 30,
   };
 
   // -----------------------
@@ -78,9 +81,9 @@
       overpriceMultiplier: Number(s.overpriceMultiplier) || DEFAULTS.overpriceMultiplier,
       refreshSeconds: Number(s.refreshSeconds) || DEFAULTS.refreshSeconds,
       apiBase: String(s.apiBase || API_BASE),
-      // Back-compat: if old dockIcon exists, use it for both light/dark unless specifically overridden
-      dockIconLight: typeof s.dockIconLight === 'string' ? s.dockIconLight : (typeof s.dockIcon === 'string' ? s.dockIcon : DOCK_ICON_DEFAULT_LIGHT),
-      dockIconDark: typeof s.dockIconDark === 'string' ? s.dockIconDark : (typeof s.dockIcon === 'string' ? s.dockIcon : DOCK_ICON_DEFAULT_DARK),
+      // Emblem is hardwired for all users (owner can change in script only)
+      dockIconLight: DOCK_ICON_DEFAULT_LIGHT,
+      dockIconDark: DOCK_ICON_DEFAULT_DARK,
       minimal: s.minimal != null ? !!s.minimal : DEFAULTS.minimal,
       colorblind: s.colorblind != null ? !!s.colorblind : DEFAULTS.colorblind,
       showOnlyDeals: s.showOnlyDeals != null ? !!s.showOnlyDeals : DEFAULTS.showOnlyDeals,
@@ -93,12 +96,17 @@
       badgePosition: s.badgePosition || DEFAULTS.badgePosition,
       openOnHit: s.openOnHit != null ? !!s.openOnHit : DEFAULTS.openOnHit,
       snoozeUntil: Number(s.snoozeUntil || 0),
+      monitorEnabled: s.monitorEnabled != null ? !!s.monitorEnabled : DEFAULTS.monitorEnabled,
+      monitorIntervalSec: Number(s.monitorIntervalSec || DEFAULTS.monitorIntervalSec),
     };
   }
 
   function setSettings(next) {
     GM_setValue(STORAGE_KEYS.settings, next);
   }
+
+  function getMonitorState() { return GM_getValue(STORAGE_KEYS.monitor, {}); }
+  function setMonitorState(obj) { GM_setValue(STORAGE_KEYS.monitor, obj || {}); }
 
   function getApiKey() {
     return (GM_getValue(STORAGE_KEYS.apiKey, '') || '').trim();
@@ -286,9 +294,12 @@
         .dock-btn:hover { filter: brightness(1.05); transform: translateY(-1px); }
         .dock-btn::after { content:""; position:absolute; inset:-2px; border-radius:50%; background: radial-gradient(closest-side, rgba(93,155,255,.5), transparent); opacity:.0; transition: opacity .3s ease; }
         .dock-btn:hover::after { opacity:.7; }
-    .dot { position:absolute; top:4px; right:4px; width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 6px rgba(16,185,129,.8); display:none; }
+        .dock-btn.tmw-breathe { animation: tmw-breath 3.2s ease-in-out infinite alternate; }
+        .dock-btn.tmw-pop { animation: tmw-pop 600ms ease; }
+        .dock-btn.tmw-spin { animation: tmw-spin 480ms ease-out; }
+        .dot { position:absolute; top:4px; right:4px; width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 6px rgba(16,185,129,.8); display:none; }
         .dot.show { display:block; }
-        .panel { position:fixed; bottom:54px; right:0; width:340px; max-height:70vh; background:#111827; color:#e5e7eb; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.45); border:1px solid #1f2937; display:none; overflow:hidden; }
+        .panel { position:fixed; bottom:54px; right:0; width:340px; max-height:70vh; background:#111827; color:#e5e7eb; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.45); border:1px solid #1f2937; display:none; overflow:hidden; transform-origin: bottom right; }
         .hdr { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #1f2937; }
         .ttl { font-weight:700; font-size:14px; letter-spacing:.2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .xbtn { background:none; border:none; color:#9ca3af; font-size:18px; cursor:pointer; }
@@ -307,6 +318,14 @@
         .list { margin-top:8px; max-height:160px; overflow:auto; border:1px solid #1f2937; border-radius:8px; }
         .item { display:flex; align-items:center; justify-content:space-between; padding:8px 10px; border-bottom:1px solid #1f2937; font-size:12px; }
         .item:last-child { border-bottom:none; }
+        @keyframes tmw-breath { from { transform: translateY(0) scale(1); } to { transform: translateY(-0.5px) scale(1.03); } }
+        @keyframes tmw-pop { 0%{ transform: scale(1);} 40%{ transform: scale(1.08);} 100%{ transform: scale(1);} }
+        @keyframes tmw-spin { from{ transform: rotate(0deg);} to{ transform: rotate(360deg);} }
+        @keyframes tmw-panel-in { from { transform: translateY(8px) scale(0.98); opacity:0; } to { transform: translateY(0) scale(1); opacity:1; } }
+        .panel.tmw-anim-in { animation: tmw-panel-in 320ms cubic-bezier(.2,.7,.2,1); }
+        @keyframes tmw-pulse { 0%{ transform: scale(1); opacity:.8;} 70%{ transform: scale(1.35); opacity:.3;} 100%{ transform: scale(1); opacity:.8;} }
+        .idle-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#93c5fd; margin-left:8px; box-shadow:0 0 8px rgba(59,130,246,.6); animation: tmw-pulse 2.2s ease-in-out infinite; vertical-align:middle; }
+        @media (prefers-reduced-motion: reduce) { .dock-btn.tmw-breathe, .dock-btn.tmw-pop, .dock-btn.tmw-spin, .panel.tmw-anim-in, .idle-dot { animation: none !important; } }
         .statusbar { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 8px; }
         .pill { display:inline-block; padding:2px 6px; border-radius:999px; font-size:11px; background:#1f2937; color:#e5e7eb; border:1px solid #374151; }
         .pill.green{ background:#0f5132; border-color:#0f5132; color:#d1fae5; }
@@ -318,7 +337,7 @@
       </div>
       <div class="panel" id="tmw-panel">
         <div class="hdr">
-          <div class="ttl"><span class="brand">lvciid's</span> Torn Market Watchdog</div>
+          <div class="ttl"><span class="brand">lvciid's</span> Torn Market Watchdog <span class="idle-dot" title="Active"></span></div>
           <button class="xbtn" id="tmw-close">×</button>
         </div>
         <div class="cnt" id="tmw-cnt"></div>
@@ -328,6 +347,7 @@
     ui.dock = shadow.getElementById('tmw-dock');
     ui.panel = shadow.getElementById('tmw-panel');
     const btn = shadow.getElementById('tmw-dock-btn');
+    btn.classList.add('tmw-breathe');
     btn.addEventListener('click', () => togglePanel(ui.panel.style.display !== 'block'));
     btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openDockMenu(e); });
     shadow.getElementById('tmw-close').addEventListener('click', () => togglePanel(false));
@@ -468,6 +488,8 @@
     if (open) {
       renderSettingsPanel();
       try { const st = GM_getValue(STORAGE_KEYS.ui, { scrollTop: 0 }).scrollTop || 0; requestAnimationFrame(()=>{ const cnt = ui.shadow.getElementById('tmw-cnt'); if (cnt) cnt.scrollTop = st; }); } catch(_) {}
+      try { ui.panel.classList.add('tmw-anim-in'); setTimeout(()=>ui.panel.classList.remove('tmw-anim-in'), 350); } catch(_) {}
+      try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-spin'); setTimeout(()=>b.classList.remove('tmw-spin'), 520); } catch(_) {}
     }
     try { const b = ui.shadow.getElementById('tmw-dock-btn'); if (b) b.setAttribute('aria-expanded', open ? 'true' : 'false'); } catch(_) {}
   }
@@ -609,21 +631,17 @@
         </div>
         <div class="row">
           <div>
-            <label>Dock icon (light)</label>
+            <label>Live Price Monitor</label>
+            <label class="inline"><input type="checkbox" id="tmw-monitor-enabled" ${s.monitorEnabled ? 'checked' : ''}/> Enable background watchlist monitoring</label>
             <div class="inline">
-              <input id="tmw-dock-icon-light" type="text" placeholder="Emoji or image URL (https/data)" value="${escapeHtml(s.dockIconLight || '')}" />
-              <img id="tmw-dock-preview-light" class="icon-preview" />
-            </div>
-          </div>
-          <div>
-            <label>Dock icon (dark)</label>
-            <div class="inline">
-              <input id="tmw-dock-icon-dark" type="text" placeholder="Emoji or image URL (https/data)" value="${escapeHtml(s.dockIconDark || '')}" />
-              <img id="tmw-dock-preview-dark" class="icon-preview" />
+              <span class="muted">Check every</span>
+              <input id="tmw-monitor-interval" type="number" min="10" max="300" value="${Number(s.monitorIntervalSec || 30)}" />
+              <span class="muted">seconds</span>
             </div>
           </div>
         </div>
-        <div class="muted">Tip: leave blank to use the built‑in snake SVG. Enter an emoji (e.g., 🐺) or an image URL/data URI.</div>
+        <div class="list" id="tmw-monitor-list"></div>
+        <div class="muted">Emblem is set by the script owner and not user‑configurable.</div>
 
         <div style="margin-top:10px;">
           <div class="row">
@@ -691,8 +709,6 @@
           if (!ok) return;
         }
       } catch(_) {}
-      const dockIconLight = String(ui.shadow.getElementById('tmw-dock-icon-light').value || '');
-      const dockIconDark = String(ui.shadow.getElementById('tmw-dock-icon-dark').value || '');
       const minimal = !!ui.shadow.getElementById('tmw-minimal').checked;
       const colorblind = !!ui.shadow.getElementById('tmw-colorblind').checked;
       const showOnlyDeals = !!ui.shadow.getElementById('tmw-show-deals').checked;
@@ -704,7 +720,9 @@
       const sounds = !!ui.shadow.getElementById('tmw-sounds').checked;
       const openOnHit = !!ui.shadow.getElementById('tmw-open-hit').checked;
       const quiet = { start: Number(ui.shadow.getElementById('tmw-quiet-start').value)||0, end: Number(ui.shadow.getElementById('tmw-quiet-end').value)||0 };
-      setSettings({ goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, apiBase: base, dockIconLight, dockIconDark, minimal, colorblind, showOnlyDeals, hideOverpriced, compactBadges, badgePosition, alwaysConfirm, disableOverConfirm, sounds, quiet, openOnHit, snoozeUntil: getSettings().snoozeUntil });
+      const monitorEnabled = !!ui.shadow.getElementById('tmw-monitor-enabled').checked;
+      const monitorIntervalSec = Number(ui.shadow.getElementById('tmw-monitor-interval').value)||30;
+      setSettings({ goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, apiBase: base, minimal, colorblind, showOnlyDeals, hideOverpriced, compactBadges, badgePosition, alwaysConfirm, disableOverConfirm, sounds, quiet, openOnHit, snoozeUntil: getSettings().snoozeUntil, monitorEnabled, monitorIntervalSec });
       applyDockIcon();
       notify('Watchdog settings saved.');
     };
@@ -757,22 +775,10 @@
       }
     };
 
-    // Live preview for icon fields
-    try {
-      const prevL = ui.shadow.getElementById('tmw-dock-preview-light');
-      const prevD = ui.shadow.getElementById('tmw-dock-preview-dark');
-      const setPrev = (id, img) => {
-        const v = ui.shadow.getElementById(id).value.trim();
-        if (/^(https?:|data:)/i.test(v)) { img.src = v; img.style.display=''; }
-        else { img.removeAttribute('src'); img.style.display='none'; }
-      };
-      setPrev('tmw-dock-icon-light', prevL);
-      setPrev('tmw-dock-icon-dark', prevD);
-      ui.shadow.getElementById('tmw-dock-icon-light').addEventListener('input', () => setPrev('tmw-dock-icon-light', prevL));
-      ui.shadow.getElementById('tmw-dock-icon-dark').addEventListener('input', () => setPrev('tmw-dock-icon-dark', prevD));
-    } catch(_) {}
+    // Emblem customization disabled for users
 
     renderWatchList();
+    renderMonitorList();
   }
 
   function renderWatchList() {
@@ -798,6 +804,19 @@
         renderWatchList();
       });
     });
+  }
+
+  function renderMonitorList() {
+    try {
+      const el = ui.shadow.getElementById('tmw-monitor-list'); if (!el) return;
+      const wl = getWatchlist(); const mon = getMonitorState();
+      const items = Object.keys(wl).map(id => ({ id, name: wl[id].name, target: wl[id].target, min: mon[id]?.min ?? null, ts: mon[id]?.ts ?? 0 }));
+      if (!items.length) { el.innerHTML = '<div class="item muted">No watchlist items to monitor.</div>'; return; }
+      el.innerHTML = items.map(({id,name,target,min,ts}) => {
+        const age = ts? Math.max(0, Math.round((Date.now()-ts)/1000))+'s ago' : '—';
+        return `<div class="item"><div>${escapeHtml(name)} <span class="muted">≤ ${fmtMoney(target)}</span></div><div class="muted">min: ${min!=null?fmtMoney(min):'—'} • ${age}</div></div>`;
+      }).join('');
+    } catch(_) {}
   }
 
   function escapeHtml(s) {
@@ -1085,6 +1104,7 @@
           info.row.classList.add('tmw-watch');
           fairBlock.textContent = `${badgeTxt}${label} • watch hit ≤ ${fmtMoney(watched.target)}`;
           notify(`Deal found: ${watched.name || info.itemName} at ${fmtMoney(info.price)} (target ≤ ${fmtMoney(watched.target)})`);
+          try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-pop'); setTimeout(()=>b.classList.remove('tmw-pop'), 650); } catch(_) {}
           try { playHitSound(); } catch(_) {}
         }
 
