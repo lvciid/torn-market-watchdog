@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Market Watchdog
 // @namespace    https://github.com/lvciid/torn-market-watchdog
-// @version      0.3.4
+// @version      0.3.6
 // @description  Highlights deals, warns on ripoffs, and alerts watchlist items using live Torn API data. Your API key stays local and never exposed.
 // @author       lvciid
 // @match        *://*.torn.com/*
@@ -64,6 +64,7 @@
     alwaysConfirm: false,
     disableOverConfirm: false,
     sounds: true,
+    volume: 0.08,
     quiet: { start: 23, end: 7 }, // quiet hours local time (23:00-07:00)
     compactBadges: false,
     badgePosition: 'name', // or 'price'
@@ -97,6 +98,7 @@
       alwaysConfirm: s.alwaysConfirm != null ? !!s.alwaysConfirm : DEFAULTS.alwaysConfirm,
       disableOverConfirm: s.disableOverConfirm != null ? !!s.disableOverConfirm : DEFAULTS.disableOverConfirm,
       sounds: s.sounds != null ? !!s.sounds : DEFAULTS.sounds,
+      volume: (s.volume != null ? Number(s.volume) : DEFAULTS.volume),
       quiet: s.quiet || DEFAULTS.quiet,
       compactBadges: s.compactBadges != null ? !!s.compactBadges : DEFAULTS.compactBadges,
       badgePosition: s.badgePosition || DEFAULTS.badgePosition,
@@ -397,7 +399,7 @@
       </div>
       <div class="panel" id="tmw-panel">
         <div class="hdr">
-          <div class="ttl"><span class="brand">lvciid's</span> Torn Market Watchdog <span class="idle-dot" title="Active"></span></div>
+          <div class="ttl"><span class="brand">lvciid's</span> <span class="brand">Torn Market Watchdog</span> <span class="idle-dot" title="Active"></span></div>
           <button class="xbtn" id="tmw-close">×</button>
         </div>
         <div class="cnt" id="tmw-cnt"></div>
@@ -600,6 +602,17 @@
           </div>
           <div class="tmw-row">
             <div>
+              <label>Sound volume</label>
+              <div>
+                <input id="ex-volume" type="range" min="0" max="100" value="${Math.round((getSettings().volume!=null?getSettings().volume:DEFAULTS.volume)*100)}" />
+                <span class="muted" id="ex-volume-val">${Math.round((getSettings().volume!=null?getSettings().volume:DEFAULTS.volume)*100)}%</span>
+                <button class="secondary" id="ex-test-sound" style="margin-left:6px;">Test</button>
+              </div>
+            </div>
+            <div></div>
+          </div>
+          <div class="tmw-row">
+            <div>
               <label>API base</label>
               <input id="ex-api" type="text" value="${escapeHtml(getSettings().apiBase||'')}" />
             </div>
@@ -613,6 +626,28 @@
       ui.shadow.appendChild(modal);
       modal.querySelector('.tmw-backdrop').addEventListener('click', ()=> modal.remove());
       modal.querySelector('#ex-cancel').addEventListener('click', ()=> modal.remove());
+      // live volume label
+      try {
+        const v = modal.querySelector('#ex-volume');
+        const vv = modal.querySelector('#ex-volume-val');
+        v.addEventListener('input', ()=>{ vv.textContent = `${v.value}%`; });
+      } catch(_){}
+      // test sound button (ignores quiet hours)
+      try {
+        modal.querySelector('#ex-test-sound').addEventListener('click', ()=>{
+          try {
+            const v = modal.querySelector('#ex-volume');
+            const level = Math.max(0, Math.min(1, Number(v.value)/100));
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            g.gain.value = level; o.connect(g); g.connect(ctx.destination);
+            o.type = 'sine'; o.frequency.value = 880; o.start();
+            setTimeout(()=>{ o.stop(); ctx.close(); }, 160);
+          } catch(_) {}
+        });
+      } catch(_){}
+
       modal.querySelector('#ex-save').addEventListener('click', ()=>{
         try {
           const good = Number(modal.querySelector('#ex-good').value);
@@ -620,7 +655,8 @@
           const rf = Number(modal.querySelector('#ex-refresh').value);
           const q = Number(modal.querySelector('#ex-queue').value)||1500;
           const base = String(modal.querySelector('#ex-api').value||API_BASE);
-          setSettings({ ...getSettings(), goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, queueIntervalMs: q, apiBase: base });
+          const volPct = Math.max(0, Math.min(100, Number(modal.querySelector('#ex-volume').value)||Math.round((getSettings().volume||DEFAULTS.volume)*100)));
+          setSettings({ ...getSettings(), goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, queueIntervalMs: q, apiBase: base, volume: (volPct/100) });
           notify('Extra settings saved.'); modal.remove(); scanDomSoon();
         } catch(_) { notify('Failed to save settings'); }
       });
@@ -763,6 +799,7 @@
           ${s.minimal?`<span class=\"pill\">Minimal</span>`:''}
           ${s.colorblind?`<span class=\"pill\">CB palette</span>`:''}
         </div>
+        <div class="muted">Need help or instructions? Message on Torn: <a class="tmw-link" href="https://www.torn.com/profiles.php?XID=3888554" target="_blank" rel="noopener">lvciid</a> • GitHub: <a class="tmw-link" href="https://github.com/lvciid/torn-market-watchdog" target="_blank" rel="noopener">lvciid/torn-market-watchdog</a> • See README in the repo for full functionality.</div>
         <label>API Key (Limited Access)</label>
         ${hasKey && uiState.apiCollapsed ? `
           <div class="api-pill">API active ✓ • <span class="tmw-link" id="tmw-api-change">Change</span></div>
@@ -776,30 +813,7 @@
           <div class="muted" id="tmw-key-status">Status: ${hasKey ? 'Key set ✓' : 'Not set'}</div>
         `}
 
-        <div class="row" style="margin-top:8px;">
-          <div>
-            <label>Deal threshold</label>
-            <input id="tmw-good-threshold" type="number" step="0.01" min="0.5" max="1.0" value="${s.goodThreshold}" />
-            <div class="muted">Green if price ≤ threshold × median.</div>
-          </div>
-          <div>
-            <label>Ripoff warning</label>
-            <input id="tmw-over-mult" type="number" step="0.05" min="1.2" max="5.0" value="${s.overpriceMultiplier}" />
-            <div class="muted">Confirm if price ≥ multiplier × median.</div>
-          </div>
-        </div>
-        <div class="row">
-          <div>
-            <label>Auto-refresh (seconds)</label>
-            <input id="tmw-refresh" type="number" min="15" max="300" value="${s.refreshSeconds}" />
-            <div class="muted">Refresh cached medians and re-scan page.</div>
-          </div>
-          <div>
-            <label>API base (optional)</label>
-            <input id="tmw-api-base" type="text" placeholder="${API_BASE}" value="${escapeHtml(s.apiBase || API_BASE)}" />
-            <div class="muted">Leave default unless you use a compatible mirror.</div>
-          </div>
-        </div>
+        <!-- Numeric options moved to Extra settings modal (right-click ring → Extra settings…) -->
         <div class="row">
           <label><input type="checkbox" id="tmw-minimal" ${s.minimal ? 'checked' : ''}/> Minimal highlight (badges only)</label>
           <label style="display:none"><input type="checkbox" id="tmw-colorblind" ${s.colorblind ? 'checked' : ''}/> Colorblind-friendly palette</label>
@@ -920,21 +934,9 @@
     };
 
     ui.shadow.getElementById('tmw-save').onclick = () => {
-      const good = Number(ui.shadow.getElementById('tmw-good-threshold').value);
-      const over = Number(ui.shadow.getElementById('tmw-over-mult').value);
-      const rf = Number(ui.shadow.getElementById('tmw-refresh').value);
-      const base = String(ui.shadow.getElementById('tmw-api-base').value || API_BASE);
-      // Confirm host change if switching away from api.torn.com
-      try {
-        const prevHost = (new URL(getSettings().apiBase || API_BASE)).host;
-        const nextHost = (new URL(base)).host;
-        if (nextHost !== prevHost && nextHost !== (new URL(API_BASE)).host) {
-          const ok = confirm(`Change API host to ${nextHost}? Ensure it's trusted and allowed in @connect.`);
-          if (!ok) return;
-        }
-      } catch(_) {}
+      const prev = getSettings();
       const minimal = !!ui.shadow.getElementById('tmw-minimal').checked;
-      const colorblind = !!ui.shadow.getElementById('tmw-colorblind').checked;
+      const colorblind = false;
       const showOnlyDeals = !!ui.shadow.getElementById('tmw-show-deals').checked;
       const hideOverpriced = !!ui.shadow.getElementById('tmw-hide-over').checked;
       const compactBadges = !!ui.shadow.getElementById('tmw-compact').checked;
@@ -946,7 +948,7 @@
       const quiet = { start: Number(ui.shadow.getElementById('tmw-quiet-start').value)||0, end: Number(ui.shadow.getElementById('tmw-quiet-end').value)||0 };
       const monitorEnabled = !!ui.shadow.getElementById('tmw-monitor-enabled').checked;
       const monitorIntervalSec = Number(ui.shadow.getElementById('tmw-monitor-interval').value)||30;
-      setSettings({ goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, apiBase: base, minimal, colorblind, showOnlyDeals, hideOverpriced, compactBadges, badgePosition, alwaysConfirm, disableOverConfirm, sounds, quiet, openOnHit, snoozeUntil: getSettings().snoozeUntil, monitorEnabled, monitorIntervalSec });
+      setSettings({ ...prev, minimal, colorblind, showOnlyDeals, hideOverpriced, compactBadges, badgePosition, alwaysConfirm, disableOverConfirm, sounds, quiet, openOnHit, monitorEnabled, monitorIntervalSec });
       applyDockIcon();
       notify('Watchdog settings saved.');
     };
@@ -980,6 +982,8 @@
     ui.shadow.getElementById('tmw-snooze-5').onclick = () => snooze(5);
     ui.shadow.getElementById('tmw-snooze-15').onclick = () => snooze(15);
     ui.shadow.getElementById('tmw-snooze-30').onclick = () => snooze(30);
+
+    // Volume controls moved to Extra settings (right-click radial → Extra settings…)
 
     ui.shadow.getElementById('tmw-add-watch').onclick = async () => {
       const name = ui.shadow.getElementById('tmw-watch-name').value.trim();
@@ -1273,7 +1277,9 @@
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const o = ctx.createOscillator();
-      const g = ctx.createGain(); g.gain.value = 0.04; o.connect(g); g.connect(ctx.destination);
+      const g = ctx.createGain();
+      const vol = Math.max(0, Math.min(1, Number(s.volume != null ? s.volume : DEFAULTS.volume)));
+      g.gain.value = vol; o.connect(g); g.connect(ctx.destination);
       o.type = 'sine'; o.frequency.value = 880; o.start();
       setTimeout(()=>{ o.stop(); ctx.close(); }, 160);
     } catch(_) {}

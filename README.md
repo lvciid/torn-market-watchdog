@@ -12,12 +12,18 @@ A Tampermonkey userscript that highlights deals, warns on ripoffs, and alerts wa
 
 Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@version` increases.
 
+## Help / Support
+
+- Message on Torn: https://www.torn.com/profiles.php?XID=3888554
+- GitHub: https://github.com/lvciid/torn-market-watchdog
+- See this README for full functionality and usage tips.
+
 ## Highlights
 
 - Live pricing: Listings via Torn API; medians cached 60s.
 - Highlights: “deal/over” labels; tooltips show median/min/sample and last updated.
 - Scam shield: Confirm on overpriced; optional “always confirm before buy” or disable our confirm.
-- Watchlist: Alerts and highlight when ≤ target; optional beep with quiet hours; can auto‑open panel on hit.
+- Watchlist: Alerts and highlights when a listing price drops at or below your target; optional beep with quiet hours and volume control; can auto‑open panel on hit.
 - Overrides: Per‑item thresholds; ignore items.
 - Filters: “Show deals only”, “Hide overpriced”.
 - Color/UX: Colorblind palette; Minimal (badge‑only) mode; compact money; badge position (by name/price).
@@ -38,7 +44,7 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 - Safety: Always confirm; Disable overpriced confirm.
 - Appearance: Minimal mode; Colorblind palette; Badge position; Compact badges.
 - Watchlist & Overrides: Add target price; per‑item thresholds; ignore item.
-- Notifications: Sound on hit; quiet hours; Open panel on hit.
+- Notifications: Sound on hit (when price ≤ your watchlist target). Quiet hours and Open panel on hit. Volume control lives in Extra settings (right‑click the dock → Extra settings…).
 - Snooze: Pause scanning for 5/15/30m from the radial dock menu; clear snooze. Progress ring shows time to next monitor check.
 - Dock icons: Emblem is set by the script owner in code and is not user‑configurable.
 
