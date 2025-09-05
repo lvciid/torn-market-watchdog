@@ -1,16 +1,11 @@
 // ==UserScript==
 // @name         Torn Market Watchdog
 // @namespace    https://github.com/lvciid/torn-market-watchdog
-// @version      0.2.0
-// @description  Highlights deals, warns on ripoffs, and alerts watchlist items using live Torn API data. Your API key stays local and never exposed.
-// @author       You
+// @version      0.1.0
+// @description  Highlights deals, warns on ripoffs, and alerts watchlist items using live Torn API data.
+// @author       lvciid
 // @match        https://www.torn.com/*
 // @run-at       document-idle
-// @noframes
-// @homepageURL  https://github.com/lvciid/torn-market-watchdog
-// @supportURL   https://github.com/lvciid/torn-market-watchdog/issues
-// @downloadURL  https://raw.githubusercontent.com/lvciid/torn-market-watchdog/main/torn-market-watchdog.user.js
-// @updateURL    https://raw.githubusercontent.com/lvciid/torn-market-watchdog/main/torn-market-watchdog.user.js
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
@@ -18,7 +13,6 @@
 // @grant        GM_addStyle
 // @grant        GM_notification
 // @grant        GM_xmlhttpRequest
-// @grant        GM_addValueChangeListener
 // @connect      api.torn.com
 // @license      MIT
 // ==/UserScript==
@@ -35,10 +29,8 @@
     items: 'tmw_items_dict', // { ts: number, itemsById: {...}, idByName: {...} }
     marketCache: 'tmw_market_cache', // { [itemId]: { ts: number, median: number, min: number, sample: number } }
     watchlist: 'tmw_watchlist', // { [itemId]: { name: string, target: number } }
-    settings: 'tmw_settings', // { goodThreshold, overpriceMultiplier, refreshSeconds, apiBase, queueIntervalMs, paused }
+    settings: 'tmw_settings', // { goodThreshold, overpriceMultiplier, refreshSeconds, apiBase }
     ui: 'tmw_ui_state', // { dock:{x:number,y:number}, open:boolean }
-    meta: 'tmw_meta', // { apiKeySetAt: number }
-    overrides: 'tmw_overrides', // { [itemId]: { goodThreshold?: number, overMult?: number, ignore?: boolean } }
   };
 
   // Defaults
@@ -48,8 +40,6 @@
     refreshSeconds: 60,
     itemsTtlMs: 24 * 60 * 60 * 1000, // 24h
     marketTtlMs: 60 * 1000, // 60s
-    queueIntervalMs: 1500,
-    routes: { market: true, bazaar: true, points: false },
   };
 
   // -----------------------
@@ -65,13 +55,6 @@
       overpriceMultiplier: Number(s.overpriceMultiplier) || DEFAULTS.overpriceMultiplier,
       refreshSeconds: Number(s.refreshSeconds) || DEFAULTS.refreshSeconds,
       apiBase: String(s.apiBase || API_BASE),
-      queueIntervalMs: Number(s.queueIntervalMs) || DEFAULTS.queueIntervalMs,
-      paused: !!s.paused,
-      routes: {
-        market: s.routes?.market !== false, // default true
-        bazaar: s.routes?.bazaar !== false, // default true
-        points: !!s.routes?.points, // default false
-      },
     };
   }
 
@@ -79,18 +62,12 @@
     GM_setValue(STORAGE_KEYS.settings, next);
   }
 
-  function getOverrides() { return GM_getValue(STORAGE_KEYS.overrides, {}); }
-  function setOverrides(obj) { GM_setValue(STORAGE_KEYS.overrides, obj || {}); }
-
   function getApiKey() {
     return (GM_getValue(STORAGE_KEYS.apiKey, '') || '').trim();
   }
 
   function setApiKey(key) {
     GM_setValue(STORAGE_KEYS.apiKey, (key || '').trim());
-    const meta = GM_getValue(STORAGE_KEYS.meta, {});
-    meta.apiKeySetAt = Date.now();
-    GM_setValue(STORAGE_KEYS.meta, meta);
   }
 
   function getItemsDict() {
@@ -163,90 +140,7 @@
   // -----------------------
   // API Layer with caching
   // -----------------------
-  // Simple, TOS-friendly queue: one request at a time with spacing, retries, and de-dup.
-  const net = (() => {
-    let lastTs = 0;
-    let active = false;
-    let minIntervalMs = DEFAULTS.queueIntervalMs; // ~40/min default; conservative for safety
-    const q = [];
-    const inflight = new Map(); // url -> Promise
-    let failureStreak = 0;
-    let pausedUntil = 0;
-
-    function setMinInterval(ms) { minIntervalMs = Math.max(750, Number(ms) || 1500); }
-
-    async function runner() {
-      if (active) return;
-      if (!q.length) return;
-      if (Date.now() < pausedUntil) return; // cooled off
-      active = true;
-      try {
-        const diff = Date.now() - lastTs;
-        const wait = Math.max(0, minIntervalMs - diff);
-        if (wait > 0) await sleep(wait);
-        const job = q.shift();
-        lastTs = Date.now();
-        try {
-          const res = await job.exec();
-          failureStreak = 0;
-          job.resolve(res);
-        } catch (e) {
-          failureStreak++;
-          if (failureStreak >= 5) {
-            // backoff for 2 minutes after repeated failures
-            pausedUntil = Date.now() + 2 * 60 * 1000;
-          }
-          job.reject(e);
-        }
-      } finally {
-        active = false;
-        if (q.length) runner();
-      }
-    }
-
-    function enqueue(exec, key) {
-      if (key && inflight.has(key)) return inflight.get(key);
-      const p = new Promise((resolve, reject) => {
-        q.push({ exec, resolve, reject });
-        runner();
-      });
-      if (key) {
-        inflight.set(key, p);
-        p.finally(() => inflight.delete(key));
-      }
-      return p;
-    }
-
-    async function getJson(finalUrl) {
-      // retry with backoff on 429/5xx
-      let attempt = 0;
-      const maxAttempts = 4;
-      while (true) {
-        if (Date.now() < pausedUntil) throw new Error('Cooling down');
-        const res = await new Promise((resolve) => {
-          GM_xmlhttpRequest({
-            method: 'GET', url: finalUrl, headers: { 'Accept': 'application/json' }, anonymous: true,
-            onload: (r) => resolve({ status: r.status || 0, text: r.responseText || '' }),
-            onerror: () => resolve({ status: 0, text: '' }),
-            ontimeout: () => resolve({ status: 0, text: '' }),
-          });
-        });
-        if (res.status >= 200 && res.status < 300) {
-          try { return JSON.parse(res.text || 'null'); } catch (e) { throw new Error('Invalid JSON'); }
-        }
-        const retriable = res.status === 429 || res.status >= 500 || res.status === 0;
-        if (!retriable || attempt >= maxAttempts - 1) {
-          throw new Error(`HTTP ${res.status || 'error'}`);
-        }
-        attempt++;
-        const backoff = Math.min(10000, Math.round(600 * Math.pow(1.8, attempt) + Math.random() * 300));
-        await sleep(backoff);
-      }
-    }
-
-    return { enqueue, getJson, setMinInterval, get failureStreak() { return failureStreak; }, get pausedUntil() { return pausedUntil; } };
-  })();
-  // Use GM_xmlhttpRequest via our queue to avoid leaks and rate-limit usage.
+  // Use GM_xmlhttpRequest to avoid page-level interception of requests containing the key.
   async function apiFetchJson(url) {
     const apikey = getApiKey();
     if (!apikey) throw new Error('No API key set');
@@ -255,11 +149,24 @@
     const rel = url.replace(/^https?:\/\/[^/]+/, '');
     const glue = rel.includes('?') ? '&' : '?';
     const final = `${base}${rel}${glue}key=${encodeURIComponent(apikey)}`;
-    return net.enqueue(async () => {
-      const j = await net.getJson(final);
-      if (j && j.error) throw new Error(`Torn API error: ${j.error.code} ${j.error.error}`);
-      return j;
-    }, final);
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url: final,
+        headers: { 'Accept': 'application/json' },
+        anonymous: true,
+        onload: (resp) => {
+          try {
+            const j = JSON.parse(resp.responseText || 'null');
+            if (!j) return reject(new Error('Empty response'));
+            if (j.error) return reject(new Error(`Torn API error: ${j.error.code} ${j.error.error}`));
+            resolve(j);
+          } catch (e) { reject(e); }
+        },
+        onerror: () => reject(new Error('Network error')),
+        ontimeout: () => reject(new Error('Network timeout')),
+      });
+    });
   }
 
   async function loadItemsDict(force = false) {
@@ -335,7 +242,6 @@
         .hdr { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #1f2937; }
         .ttl { font-weight:700; font-size:14px; letter-spacing:.2px; }
         .xbtn { background:none; border:none; color:#9ca3af; font-size:18px; cursor:pointer; }
-        .pause { background:#374151; border:none; color:#e5e7eb; padding:6px 8px; border-radius:6px; cursor:pointer; margin-right:8px; }
         .cnt { padding:12px; }
         label { display:block; font-size:12px; margin:6px 0 2px; color:#9ca3af; }
         input[type="text"], input[type="number"], input[type="password"] { width:100%; padding:8px; border-radius:8px; border:1px solid #374151; background:#0b1220; color:#e5e7eb; }
@@ -348,18 +254,14 @@
         .list { margin-top:8px; max-height:160px; overflow:auto; border:1px solid #1f2937; border-radius:8px; }
         .item { display:flex; align-items:center; justify-content:space-between; padding:8px 10px; border-bottom:1px solid #1f2937; font-size:12px; }
         .item:last-child { border-bottom:none; }
-        .warn { background:#f59e0b22; color:#fbbf24; border:1px solid #f59e0b55; padding:8px 10px; border-radius:8px; margin-bottom:8px; font-size:12px; }
       </style>
       <div class="dock" id="tmw-dock">
-        <button class="dock-btn" id="tmw-dock-btn" title="Open Torn Market Watchdog" aria-label="Open Torn Market Watchdog" role="button">🐶</button>
+        <button class="dock-btn" id="tmw-dock-btn" title="Open Torn Market Watchdog">🐶</button>
       </div>
-      <div class="panel" id="tmw-panel" role="dialog" aria-modal="true" aria-label="Torn Market Watchdog Settings">
+      <div class="panel" id="tmw-panel">
         <div class="hdr">
           <div class="ttl">Torn Market Watchdog</div>
-          <div>
-            <button class="pause" id="tmw-pause">Pause</button>
-            <button class="xbtn" id="tmw-close" aria-label="Close">×</button>
-          </div>
+          <button class="xbtn" id="tmw-close">×</button>
         </div>
         <div class="cnt" id="tmw-cnt"></div>
       </div>
@@ -370,24 +272,8 @@
     const btn = shadow.getElementById('tmw-dock-btn');
     btn.addEventListener('click', () => togglePanel(true));
     shadow.getElementById('tmw-close').addEventListener('click', () => togglePanel(false));
-    shadow.getElementById('tmw-pause').addEventListener('click', () => {
-      const s = getSettings();
-      s.paused = !s.paused; setSettings(s);
-      ui.shadow.getElementById('tmw-pause').textContent = s.paused ? 'Resume' : 'Pause';
-      notify(s.paused ? 'Watchdog paused' : 'Watchdog resumed');
-    });
-    // reflect initial pause state
-    try { ui.shadow.getElementById('tmw-pause').textContent = getSettings().paused ? 'Resume' : 'Pause'; } catch(_) {}
     enableDockDrag();
     GM_registerMenuCommand('TMW: Open Settings', () => togglePanel(true));
-    // Keyboard shortcuts: Alt+W toggle, Esc to close
-    window.addEventListener('keydown', (ev) => {
-      if (ev.altKey && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey && (ev.key === 'w' || ev.key === 'W')) {
-        ev.preventDefault(); togglePanel(ui.panel.style.display !== 'block');
-      } else if (ev.key === 'Escape' && ui.panel.style.display === 'block') {
-        togglePanel(false);
-      }
-    });
   }
 
   function togglePanel(open) {
@@ -396,22 +282,6 @@
     ui.panel.style.display = open ? 'block' : 'none';
     state.open = !!open; GM_setValue(STORAGE_KEYS.ui, state);
     if (open) renderSettingsPanel();
-    // focus first input and trap Tab cycling within panel
-    if (open) {
-      const first = ui.panel.querySelector('input,button,select,textarea');
-      if (first) first.focus();
-      const handler = (e) => {
-        if (e.key === 'Tab') {
-          const focusables = ui.panel.querySelectorAll('input,button,select,textarea,[tabindex]');
-          const list = Array.from(focusables).filter(el => !el.hasAttribute('disabled'));
-          if (!list.length) return;
-          const i = list.indexOf(ui.shadow.activeElement);
-          if (e.shiftKey && i <= 0) { e.preventDefault(); list[list.length - 1].focus(); }
-          else if (!e.shiftKey && i >= list.length - 1) { e.preventDefault(); list[0].focus(); }
-        }
-      };
-      ui.shadow.addEventListener('keydown', handler, { capture: true, once: true });
-    }
   }
 
   function enableDockDrag() {
@@ -462,25 +332,14 @@
     const cnt = ui.shadow.getElementById('tmw-cnt');
     const s = getSettings();
     const hasKey = !!getApiKey();
-    // API base warning if host changed (user may need @connect approval)
-    let hostWarn = '';
-    try {
-      const h = (new URL(s.apiBase || API_BASE)).host;
-      if (h && h !== (new URL(API_BASE)).host) {
-        hostWarn = `<div class="warn">Using custom API base <b>${escapeHtml(h)}</b>. Ensure your userscript manager allows connections to this host (@connect).</div>`;
-      }
-    } catch(_){}
     cnt.innerHTML = `
       <div>
-        ${hostWarn}
         <label>API Key (Limited Access)</label>
         <div class="row">
           <input id="tmw-api-key" type="password" placeholder="${hasKey ? 'Key is set — enter to replace' : 'Enter your Torn API key'}" />
           <button class="secondary" id="tmw-save-key">${hasKey ? 'Update' : 'Save'}</button>
-          <button class="secondary" id="tmw-clear-key">Clear</button>
         </div>
         <div class="muted">Your key is stored locally in Tampermonkey and never exposed to the page or other scripts.</div>
-        ${(() => { const m = GM_getValue(STORAGE_KEYS.meta, {}); if (m.apiKeySetAt) { const days = Math.floor((Date.now()-m.apiKeySetAt)/86400000); return days>90?`<div class=\"warn\">Your API key is ${days} days old. Consider rotating it.</div>`:'' } return '' })()}
 
         <div class="row" style="margin-top:8px;">
           <div>
@@ -506,30 +365,6 @@
             <div class="muted">Leave default unless you use a compatible mirror.</div>
           </div>
         </div>
-        <div class="row">
-          <div>
-            <label>Queue spacing (ms)</label>
-            <input id="tmw-queue" type="number" min="750" max="5000" value="${s.queueIntervalMs}" />
-            <div class="muted">Minimum delay between API calls.</div>
-          </div>
-          <div>
-            <label>Scanning</label>
-            <button class="secondary" id="tmw-pause-toggle">${s.paused ? 'Resume' : 'Pause'}</button>
-            <div class="muted">Temporarily stop DOM scanning.</div>
-          </div>
-        </div>
-        <div class="row">
-          <div>
-            <label>Routes</label>
-            <div class="row">
-              <label><input type="checkbox" id="tmw-route-market" ${s.routes.market ? 'checked' : ''}/> Item Market</label>
-              <label><input type="checkbox" id="tmw-route-bazaar" ${s.routes.bazaar ? 'checked' : ''}/> Bazaars</label>
-              <label><input type="checkbox" id="tmw-route-points" ${s.routes.points ? 'checked' : ''}/> Points</label>
-            </div>
-            <div class="muted">Control where Watchdog is active.</div>
-          </div>
-          <div></div>
-        </div>
 
         <div style="margin-top:10px;">
           <div class="row">
@@ -548,26 +383,6 @@
           </div>
         </div>
         <div class="list" id="tmw-watch-list"></div>
-
-        <div style="margin-top:10px;">
-          <div class="row">
-            <div>
-              <label>Per-item override</label>
-              <input id="tmw-ovr-name" type="text" placeholder="e.g. Xanax" />
-            </div>
-            <div>
-              <label>Deal/Over (opt)</label>
-              <input id="tmw-ovr-vals" type="text" placeholder="0.85, 2.0 (or leave blank)" />
-            </div>
-          </div>
-          <div class="row">
-            <label><input type="checkbox" id="tmw-ovr-ignore" /> Ignore this item</label>
-            <div class="actions"><button id="tmw-add-override" class="secondary">Add/Update Override</button></div>
-          </div>
-          <div class="list" id="tmw-ovr-list"></div>
-        </div>
-
-        
       </div>
     `;
 
@@ -578,30 +393,14 @@
       ui.shadow.getElementById('tmw-api-key').value = '';
       notify('API key saved securely.');
     };
-    ui.shadow.getElementById('tmw-clear-key').onclick = () => {
-      setApiKey('');
-      notify('API key cleared.');
-    };
 
     ui.shadow.getElementById('tmw-save').onclick = () => {
       const good = Number(ui.shadow.getElementById('tmw-good-threshold').value);
       const over = Number(ui.shadow.getElementById('tmw-over-mult').value);
       const rf = Number(ui.shadow.getElementById('tmw-refresh').value);
       const base = String(ui.shadow.getElementById('tmw-api-base').value || API_BASE);
-      const qms = Number(ui.shadow.getElementById('tmw-queue').value) || DEFAULTS.queueIntervalMs;
-      const paused = getSettings().paused;
-      const routes = {
-        market: !!ui.shadow.getElementById('tmw-route-market').checked,
-        bazaar: !!ui.shadow.getElementById('tmw-route-bazaar').checked,
-        points: !!ui.shadow.getElementById('tmw-route-points').checked,
-      };
-      setSettings({ goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, apiBase: base, queueIntervalMs: qms, paused, routes });
-      net.setMinInterval(qms);
+      setSettings({ goodThreshold: good, overpriceMultiplier: over, refreshSeconds: rf, apiBase: base });
       notify('Watchdog settings saved.');
-    };
-    ui.shadow.getElementById('tmw-pause-toggle').onclick = () => {
-      const ss = getSettings(); ss.paused = !ss.paused; setSettings(ss);
-      ui.shadow.getElementById('tmw-pause-toggle').textContent = ss.paused ? 'Resume' : 'Pause';
     };
 
     ui.shadow.getElementById('tmw-add-watch').onclick = async () => {
@@ -623,31 +422,6 @@
     };
 
     renderWatchList();
-    renderOverridesList();
-
-    ui.shadow.getElementById('tmw-add-override').onclick = async () => {
-      const name = ui.shadow.getElementById('tmw-ovr-name').value.trim();
-      const vals = ui.shadow.getElementById('tmw-ovr-vals').value.trim();
-      const ignore = !!ui.shadow.getElementById('tmw-ovr-ignore').checked;
-      if (!name) { notify('Enter item name.'); return; }
-      try {
-        const dict = await loadItemsDict();
-        const id = dict.idByName[name.toLowerCase()];
-        if (!id) { notify(`Item not found: ${name}`); return; }
-        const o = getOverrides();
-        o[id] = o[id] || {};
-        o[id].ignore = ignore;
-        if (vals) {
-          const parts = vals.split(',').map(x => Number(x.trim())).filter(x => !isNaN(x));
-          if (parts[0]) o[id].goodThreshold = parts[0];
-          if (parts[1]) o[id].overMult = parts[1];
-        }
-        setOverrides(o);
-        renderOverridesList();
-        notify('Override saved.');
-      } catch (_) { notify('Failed to save override.'); }
-    };
-    
   }
 
   function renderWatchList() {
@@ -674,27 +448,6 @@
     });
   }
 
-  function renderOverridesList() {
-    const el = ui.shadow.getElementById('tmw-ovr-list');
-    if (!el) return;
-    const dict = getOverrides();
-    const items = Object.entries(dict).map(([id, v]) => ({ id, ...v }));
-    if (!items.length) { el.innerHTML = '<div class="item muted">No overrides yet.</div>'; return; }
-    el.innerHTML = items.map(({ id, goodThreshold, overMult, ignore }) => `
-      <div class="item">
-        <div>#${id} ${ignore ? '<span class="muted">(ignored)</span>' : ''}</div>
-        <div class="muted">deal:${goodThreshold ?? '-'} • over:${overMult ?? '-'}</div>
-        <div><button class="secondary tmw-ovr-remove" data-id="${id}">Remove</button></div>
-      </div>
-    `).join('');
-    el.querySelectorAll('.tmw-ovr-remove').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const id = btn.getAttribute('data-id');
-        const o = getOverrides(); delete o[id]; setOverrides(o); renderOverridesList();
-      });
-    });
-  }
-
   function escapeHtml(s) {
     return String(s || '')
       .replaceAll('&', '&amp;')
@@ -709,19 +462,6 @@
     } catch (_) {
       console.log('[TMW]', text);
     }
-  }
-
-  function showCooldownBanner() {
-    const id = 'tmw-cooldown-banner';
-    const existing = document.getElementById(id);
-    const cooling = net.pausedUntil && Date.now() < net.pausedUntil;
-    if (!cooling) { if (existing) existing.remove(); return; }
-    const left = Math.max(0, Math.round((net.pausedUntil - Date.now()) / 1000));
-    const msg = `Watchdog cooling down after repeated failures. Resumes in ~${left}s.`;
-    if (existing) { existing.textContent = msg; return; }
-    const div = document.createElement('div');
-    div.id = id; div.className = 'tmw-banner'; div.textContent = msg;
-    document.body.appendChild(div);
   }
 
   function showKeyBanner() {
@@ -743,8 +483,6 @@
   const scanDomSoon = oncePerTick(scanDom);
   let lastRefreshTs = 0;
   let observerStarted = false;
-  let io = null;
-  const rowInfo = new WeakMap();
 
   function startObservers() {
     if (observerStarted) return;
@@ -765,44 +503,7 @@
         setMarketCache(cache);
         scanDomSoon();
       }
-      showCooldownBanner();
-    }, 1000);
-
-    // Cross-tab syncing: respond to changes and rescan
-    try {
-      GM_addValueChangeListener(STORAGE_KEYS.marketCache, () => scanDomSoon());
-      GM_addValueChangeListener(STORAGE_KEYS.items, () => scanDomSoon());
-      GM_addValueChangeListener(STORAGE_KEYS.settings, (_k, _o, _n, remote) => { if (remote) scanDomSoon(); });
-      GM_addValueChangeListener(STORAGE_KEYS.watchlist, (_k, _o, _n, remote) => { if (remote) scanDomSoon(); });
-    } catch (_) {}
-
-    // IntersectionObserver for visible-only annotation
-    if ('IntersectionObserver' in window) {
-      io = new IntersectionObserver((entries) => {
-        entries.forEach(async (en) => {
-          if (en.isIntersecting) {
-            const info = rowInfo.get(en.target);
-            if (info && !en.target.getAttribute('data-tmw')) {
-              try {
-                const dict = await loadItemsDict();
-                await annotateRow(info, dict);
-              } catch (_) {}
-            }
-            io.unobserve(en.target);
-          }
-        });
-      }, { root: null, rootMargin: '0px', threshold: 0.05 });
-    }
-  }
-
-  function getRouteContext() {
-    const href = location.href.toLowerCase();
-    if (/(?:\/bazaar|bazaar=|bazaar.php)/.test(href)) return 'bazaar';
-    if (/(?:item\.php|market=|\/imarket|\/itemmarket|selections=market)/.test(href)) return 'market';
-    if (/(?:points|\/pmarket|pointsmarket)/.test(href)) return 'points';
-    // presence-based
-    if (document.querySelector('a[href*="item.php?XID="]')) return 'market';
-    return null;
+    }, 3000);
   }
 
   function handlePotentialBuy(e) {
@@ -812,12 +513,10 @@
     try { if (ui && ui.host && ui.host.contains(target)) return; } catch(_) {}
     const btn = target.closest('button, a');
     if (!btn) return;
-    // Heuristic: buy buttons typically contain text like "Buy" / "Purchase" and link to market/bazaar actions
+    // Heuristic: buy buttons typically contain text like "Buy" / "Purchase"
     const txt = (btn.textContent || '').trim().toLowerCase();
     if (!txt) return;
-    const href = (btn.getAttribute('href') || '').toLowerCase();
-    const looksLikeBuy = txt.includes('buy') || txt.includes('purchase') || /action=buy|confirm/.test(href);
-    if (!looksLikeBuy) return;
+    if (!(txt.includes('buy') || txt.includes('purchase'))) return;
     // Find the listing container and price
     const row = findListingRow(btn);
     if (!row) return;
@@ -893,8 +592,6 @@
 
   async function annotateRow(info, itemsDict) {
     if (!info || !info.itemId || !info.price) return;
-    const o = getOverrides();
-    if (o[info.itemId]?.ignore) return;
     if (info.row.getAttribute('data-tmw') === '1') return;
     info.row.setAttribute('data-tmw', '1');
 
@@ -913,22 +610,12 @@
       const fv = await getFairValue(info.itemId, itemsDict);
       const fair = fv?.median || fv?.min || null;
       const s = getSettings();
-      const ov = getOverrides()[info.itemId] || {};
       if (fair) {
         const badgeTxt = `median ${fmtMoney(fair)}${fv?.sample ? ` • n=${fv.sample}` : ''}`;
         fairBlock.textContent = badgeTxt;
-        const tt = [];
-        if (fv?.median) tt.push(`Median: ${fmtMoney(fv.median)}`);
-        if (fv?.min) tt.push(`Min: ${fmtMoney(fv.min)}`);
-        if (fv?.sample) tt.push(`Sample: ${fv.sample}`);
-        tt.push(`Listed: ${fmtMoney(info.price)}`);
-        if (fv?.ts) { const age = Math.round((now() - fv.ts)/1000); tt.push(`Updated: ${age}s ago`); }
-        fairBlock.title = tt.join('\n');
         // classify
-        const goodTh = Number(ov.goodThreshold) || s.goodThreshold;
-        const overMult = Number(ov.overMult) || s.overpriceMultiplier;
-        const isGood = info.price <= fair * goodTh;
-        const isBad = info.price >= fair * overMult;
+        const isGood = info.price <= fair * s.goodThreshold;
+        const isBad = info.price >= fair * s.overpriceMultiplier;
         if (isGood) info.row.classList.add('tmw-good');
         if (isBad) info.row.classList.add('tmw-bad');
         // watchlist
@@ -950,13 +637,7 @@
 
   async function scanDom() {
     ensureUiShell();
-    const settings = getSettings();
-    if (settings.paused) return;
     if (!getApiKey()) showKeyBanner();
-    // gate by route/context and route toggles
-    const route = getRouteContext();
-    if (!route) return;
-    if ((route === 'market' && !settings.routes.market) || (route === 'bazaar' && !settings.routes.bazaar) || (route === 'points' && !settings.routes.points)) return;
     // Collect potential rows from visible page
     // Broad net: find containers with an item link to item.php?XID and some $ price
     const candidates = new Set();
@@ -966,14 +647,26 @@
     });
 
     if (!candidates.size) return;
+    let dict;
+    try {
+      dict = await loadItemsDict();
+    } catch (e) {
+      console.warn('TMW: cannot load items dict (missing/invalid API key?)', e);
+      return;
+    }
+
+    const jobs = [];
     for (const row of candidates) {
-      if (row.getAttribute('data-tmw') === '1') continue;
       const info = extractListingInfo(row);
-      if (!info || !info.itemId || !info.price) continue;
-      rowInfo.set(row, info);
-      if (io) io.observe(row); else {
-        try { const dict = await loadItemsDict(); await annotateRow(info, dict); } catch(_) {}
+      if (info && info.itemId && info.price) {
+        jobs.push(annotateRow(info, dict));
       }
+    }
+    // Stagger to reduce burst
+    for (let i = 0; i < jobs.length; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await jobs[i];
+      await sleep(30);
     }
   }
 
@@ -987,8 +680,6 @@
     // Restore panel open state
     const state = GM_getValue(STORAGE_KEYS.ui, { open: false });
     if (state.open) togglePanel(true);
-    // Apply initial queue interval
-    try { net.setMinInterval(getSettings().queueIntervalMs || DEFAULTS.queueIntervalMs); } catch(_) {}
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
