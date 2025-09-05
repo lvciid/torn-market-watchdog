@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Market Watchdog
 // @namespace    https://github.com/lvciid/torn-market-watchdog
-// @version      0.3.2
+// @version      0.3.3
 // @description  Highlights deals, warns on ripoffs, and alerts watchlist items using live Torn API data. Your API key stays local and never exposed.
 // @author       lvciid
 // @match        *://*.torn.com/*
@@ -26,6 +26,8 @@
 
 (function () {
   'use strict';
+
+  /* global GM_getValue, GM_setValue, GM_deleteValue, GM_registerMenuCommand, GM_addStyle, GM_notification, GM_xmlhttpRequest, GM_addValueChangeListener */
 
   // -----------------------
   // Config & Constants
@@ -143,6 +145,17 @@
   function fmtMoney(n) {
     if (n == null || isNaN(n)) return '-';
     return '$' + Math.round(Number(n)).toLocaleString();
+  }
+
+  // Compact currency formatter (e.g., $1.2k, $3.4m, $2.1b)
+  function fmtMoneyCompact(n) {
+    if (n == null || isNaN(n)) return '-';
+    const num = Number(n);
+    const abs = Math.abs(num);
+    if (abs >= 1e9) return '$' + (num / 1e9).toFixed(1).replace(/\.0$/, '') + 'b';
+    if (abs >= 1e6) return '$' + (num / 1e6).toFixed(1).replace(/\.0$/, '') + 'm';
+    if (abs >= 1e3) return '$' + (num / 1e3).toFixed(1).replace(/\.0$/, '') + 'k';
+    return '$' + Math.round(num).toLocaleString();
   }
 
   function parseMoney(text) {
@@ -407,7 +420,9 @@
     try {
       const dot = ui.shadow.getElementById('tmw-dot');
       const s = getSettings();
-      const cooling = (typeof net !== 'undefined') && net.pausedUntil && Date.now() < net.pausedUntil;
+      // Cooling indicator (legacy queue state). If a queue module exposes pausedUntil, show amber dot.
+      // In current build, the request queue runs inline; treat as not cooling.
+      const cooling = false;
       const snoozed = s.snoozeUntil && Date.now() < s.snoozeUntil;
       dot.classList.remove('show');
       if (s.paused) {
