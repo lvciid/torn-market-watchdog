@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Market Watchdog
 // @namespace    https://github.com/lvciid/torn-market-watchdog
-// @version      0.3.16
+// @version      0.3.17
 // @description  Highlights deals, warns on ripoffs, and alerts watchlist items using live Torn API data. Your API key stays local and never exposed.
 // @author       lvciid
 // @match        *://*.torn.com/*
@@ -335,7 +335,7 @@
             0 6px 18px rgba(0,0,0,.35),
             inset 0 0 0 1px rgba(255,255,255,.04);
           cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:22px; transition: transform .18s ease, filter .2s ease, box-shadow .2s ease;
-          background: radial-gradient(120% 120% at 30% 20%, rgba(255,255,255,.25), rgba(255,255,255,0) 40%), linear-gradient(145deg,#1e3a8a,#3b82f6);
+          background: radial-gradient(120% 120% at 30% 20%, rgba(255,255,255,.18), rgba(255,255,255,0) 40%), linear-gradient(145deg,#0a1022,#1f3a8a);
         }
         .dock-btn:hover { filter: brightness(1.06); transform: translateY(-1px); box-shadow:
             0 8px 22px rgba(0,0,0,.38), inset 0 0 0 1px rgba(255,255,255,.06);
@@ -357,7 +357,7 @@
         .dock-btn .yell::after { content:""; position:absolute; inset:-12px; opacity:.55; }
         .dock-btn:hover .yell { opacity:1; animation: tmw-yell 900ms ease-out infinite; }
         .dock-btn:hover .icon-preview, .dock-btn:hover #tmw-emoji { transform: scale(1.08) rotate(-6deg); }
-        .dock-btn.state-active { background: radial-gradient(120% 120% at 30% 20%, rgba(255,255,255,.25), rgba(255,255,255,0) 40%), linear-gradient(145deg,#1e3a8a,#3b82f6); }
+        .dock-btn.state-active { background: radial-gradient(120% 120% at 30% 20%, rgba(255,255,255,.18), rgba(255,255,255,0) 40%), linear-gradient(145deg,#0a1022,#1f3a8a); }
         .dock-btn.state-paused { background: radial-gradient(120% 120% at 30% 20%, rgba(255,255,255,.18), rgba(255,255,255,0) 40%), linear-gradient(145deg,#7f1d1d,#ef4444); }
         .dock-btn.state-snoozed { background: radial-gradient(120% 120% at 30% 20%, rgba(255,255,255,.22), rgba(255,255,255,0) 40%), linear-gradient(145deg,#0c4a6e,#38bdf8); }
         .dock-btn.state-cooling { background: radial-gradient(120% 120% at 30% 20%, rgba(255,255,255,.2), rgba(255,255,255,0) 40%), linear-gradient(145deg,#7c2d12,#f59e0b); }
@@ -473,6 +473,13 @@
       if (e.shiftKey) {
         const s = getSettings(); s.hideOverpriced = !s.hideOverpriced; setSettings(s); notify('Toggled hide-overpriced'); scanDomSoon(); return;
       }
+      // If snoozed, clicking wakes immediately
+      try {
+        const s = getSettings();
+        if (s.snoozeUntil && Date.now() < s.snoozeUntil) {
+          s.snoozeUntil = 0; setSettings(s); notify('Snooze cleared'); updateDockState(); return;
+        }
+      } catch(_) {}
       togglePanel(ui.panel.style.display !== 'block');
       try { irritateDock(); } catch(_) {}
     });
@@ -753,8 +760,8 @@
         else if (act === 'snooze-15') { st.snoozeUntil = Date.now() + 15*60*1000; setSettings(st); notify('Snoozed 15m'); }
         else if (act === 'snooze-30') { st.snoozeUntil = Date.now() + 30*60*1000; setSettings(st); notify('Snoozed 30m'); }
         else if (act === 'snooze-clear') { st.snoozeUntil = 0; setSettings(st); notify('Snooze cleared'); }
-        else if (act === 'toggle-deals') { st.showOnlyDeals = !st.showOnlyDeals; setSettings(st); }
-        else if (act === 'toggle-over') { st.hideOverpriced = !st.hideOverpriced; setSettings(st); }
+        else if (act === 'toggle-deals') { st.showOnlyDeals = !st.showOnlyDeals; setSettings(st); notify(st.showOnlyDeals ? 'Deals-only: ON' : 'Deals-only: OFF'); }
+        else if (act === 'toggle-over') { st.hideOverpriced = !st.hideOverpriced; setSettings(st); notify(st.hideOverpriced ? 'Hide overpriced: ON' : 'Hide overpriced: OFF'); }
         else if (act === 'open-settings') { togglePanel(true); }
         else if (act === 'icon-choose') { if (!LOCK_BUDDY_ICON) openIconPicker(); }
         else if (act === 'icon-clear') { if (!LOCK_BUDDY_ICON) clearUserIcon(); }
@@ -955,8 +962,8 @@
         else if (act === 'snooze-5') { st.snoozeUntil = Date.now() + 5*60*1000; setSettings(st); notify('Snoozed 5m'); }
         else if (act === 'snooze-15') { st.snoozeUntil = Date.now() + 15*60*1000; setSettings(st); notify('Snoozed 15m'); }
         else if (act === 'snooze-30') { st.snoozeUntil = Date.now() + 30*60*1000; setSettings(st); notify('Snoozed 30m'); }
-        else if (act === 'toggle-deals') { st.showOnlyDeals = !st.showOnlyDeals; setSettings(st); }
-        else if (act === 'toggle-over') { st.hideOverpriced = !st.hideOverpriced; setSettings(st); }
+        else if (act === 'toggle-deals') { st.showOnlyDeals = !st.showOnlyDeals; setSettings(st); notify(st.showOnlyDeals ? 'Deals-only: ON' : 'Deals-only: OFF'); }
+        else if (act === 'toggle-over') { st.hideOverpriced = !st.hideOverpriced; setSettings(st); notify(st.hideOverpriced ? 'Hide overpriced: ON' : 'Hide overpriced: OFF'); }
         else if (act === 'open-settings') { togglePanel(true); }
         else if (act === 'extras') { openExtraSettings(); }
         close(); updateDockState(); scanDomSoon();
@@ -1051,7 +1058,7 @@
           ${s.minimal?`<span class=\"pill\">Minimal</span>`:''}
           ${s.colorblind?`<span class=\"pill\">CB palette</span>`:''}
         </div>
-        <div class="muted">Need help or instructions? Message on Torn: <a class="tmw-link" href="https://www.torn.com/profiles.php?XID=3888554" target="_blank" rel="noopener">lvciid</a> • GitHub: <a class="tmw-link" href="https://github.com/lvciid/torn-market-watchdog" target="_blank" rel="noopener">lvciid/torn-market-watchdog</a> • See README in the repo for full functionality.</div>
+        <div class="muted">Need help or instructions? Message on Torn: <a class="tmw-link" href="https://www.torn.com/profiles.php?XID=3888554" target="_blank" rel="noopener">lvciid</a> • GitHub: <a class="tmw-link" href="https://github.com/lvciid/torn-market-watchdog" target="_blank" rel="noopener">lvciid/torn-market-watchdog</a></div>
         <label>API Key (Limited Access)</label>
         ${hasKey && uiState.apiCollapsed ? `
           <div class="api-pill">API active ✓ • <span class="tmw-link" id="tmw-api-change">Change</span></div>
@@ -1091,6 +1098,7 @@
               <button class="secondary" id="tmw-snooze-5">5m</button>
               <button class="secondary" id="tmw-snooze-15">15m</button>
               <button class="secondary" id="tmw-snooze-30">30m</button>
+              <button class="secondary" id="tmw-snooze-clear">Resume now</button>
             </div>
           </div>
           <div class="actions"><button id="tmw-diagnostics" class="secondary">Copy diagnostics</button></div>
@@ -1107,7 +1115,6 @@
           </div>
         </div>
         <div class="list" id="tmw-monitor-list"></div>
-        <div class="muted">Emblem is set by the script owner and not user‑configurable.</div>
 
         <div style="margin-top:10px;">
           <div class="row">
@@ -1205,12 +1212,13 @@
     ui.shadow.getElementById('tmw-snooze-5').onclick = () => snooze(5);
     ui.shadow.getElementById('tmw-snooze-15').onclick = () => snooze(15);
     ui.shadow.getElementById('tmw-snooze-30').onclick = () => snooze(30);
+    try { ui.shadow.getElementById('tmw-snooze-clear').onclick = () => { const s4 = getSettings(); s4.snoozeUntil = 0; setSettings(s4); notify('Snooze cleared'); updateDockState(); }; } catch(_) {}
 
     // Volume controls moved to Extra settings (right-click radial → Extra settings…)
 
     ui.shadow.getElementById('tmw-add-watch').onclick = async () => {
       const name = ui.shadow.getElementById('tmw-watch-name').value.trim();
-      const price = Number(ui.shadow.getElementById('tmw-watch-price').value);
+      const price = parseMoney(ui.shadow.getElementById('tmw-watch-price').value);
       if (!name || !price) { notify('Enter item name and target price.'); return; }
       try {
         const dict = await loadItemsDict();
