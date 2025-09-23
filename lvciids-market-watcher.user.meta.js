@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         lvciid's Market Watcher
 // @namespace    https://github.com/lvciid/lvciids-market-watcher
-// @version      0.3.19
+// @version      0.3.20
 // @description  Highlights deals, warns on ripoffs, and alerts watchlist items using live Torn API data. Your API key stays local and never exposed.
 // @author       lvciid
 // @match        *://*.torn.com/*
