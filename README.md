@@ -23,15 +23,14 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 - Live pricing: Listings via Torn API; medians cached 60s.
 - Highlights: “deal/over” labels; tooltips show median/min/sample and last updated.
 - Scam shield: Confirm on overpriced; optional “always confirm before buy” or disable our confirm.
-- Watchlist: Alerts and highlights when a listing price drops at or below your target; optional two‑tone chime with quiet hours and volume control; can auto‑open panel on hit.
+- Watchlist: Alerts and highlights when a listing price drops at or below your target, plus optional spike alerts when a listing posts at or above your chosen ceiling; optional two‑tone chime with quiet hours and volume control; can auto‑open panel on hit.
 - Overrides: Per‑item thresholds; ignore items.
 - Filters: “Show deals only”, “Hide overpriced”.
 - Color/UX: Colorblind palette; Minimal (badge‑only) mode; compact money; badge position (by name/price).
 - Quick actions: Small “⋯” next to badge → Watch, Ignore, Override, Clear, Mute 1h.
-- Dock UX: Click toggles panel; status dot shows paused (red) or cooling (amber). Right-click the dock for a radial menu (pause, filters, settings). Extra settings open in a compact modal.
-- Panel UI: Collapsible Overview / Alerts / Appearance / API sections with status cards keep controls tidy even on smaller screens, with an aurora header highlighting “lvciid’s Market Watcher”.
-- Radial menu legend: D = toggle “Deals only”, O = toggle “Hide overpriced”. A checkmark (✓) appears when the filter is active.
-- Signature dock: Fixed “Signature shield” button (creator’s calling card) with an LV cutout and an always‑on animated lightning monogram. State‑aware gradients (active/paused/cooling) with a soft aura on active. The hit sound is a short two‑tone chime.
+- Dock UX: Click toggles panel; status dot shows paused (red) or cooling (amber). Right-click the dock for an anchored quick-controls panel (volume, sound toggle, background monitor) or jump to full settings.
+- Panel UI: Overview / Alerts / Appearance / API sections stay open at a glance, with an aurora header highlighting “lvciid’s Market Watcher”.
+- Dock button: Animated aurora capsule that glows and spins on alerts—no icon needed. State-aware gradients show active, paused, or cooling status, and the hit sound remains a short two-tone chime.
 - Progress ring: shows time to next monitor tick. Badge count shows new hits.
 - Shortcuts: Alt+W (panel), Alt+D (deals), Alt+O (hide overpriced), Alt+P (pause).
 - Icons: Built‑in light/dark LV emblem, auto theme switch. Emblem is fixed in the script (not user‑configurable).
@@ -41,11 +40,11 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 
 - API key: Stored locally; never shared.
 - Thresholds: Deal threshold, Overprice multiplier.
-- Auto‑refresh & Queue: Re‑scan cadence and API pacing.
-- Filters: Use the radial menu (right‑click dock) for Deals only (D) and Hide overpriced (O).
+- Auto‑refresh & Queue: Re‑scan cadence and API pacing (default 1.5s spacing ≈ 40 req/min, safely under Torn’s 100 req/min limit).
+- Filters: Use the quick controls (right‑click dock) for Deals only, Hide overpriced, sound toggle, and test chime.
 - Safety: Always confirm; Disable overpriced confirm.
 - Appearance: Minimal mode; Colorblind palette; Badge position; Compact badges.
-- Watchlist & Overrides: Add target price; per‑item thresholds; ignore item.
+- Watchlist & Overrides: Add low and high target prices; per-item thresholds; ignore item.
 - Notifications: Two‑tone chime on hit (only when price ≤ your watchlist target). Quiet hours and Open panel on hit. Volume control + Test live in Extra settings (right‑click the dock → Extra settings…).
 - Progress ring: shows time to next monitor check.
 - Branding: The dock uses a fixed “Signature shield” with an LV monogram (the creator’s calling card). This is intentional and not user‑configurable.

@@ -48,6 +48,7 @@
     items: 'tmw_items_dict', // { ts: number, itemsById: {...}, idByName: {...} }
     marketCache: 'tmw_market_cache', // { [itemId]: { ts: number, median: number, min: number, sample: number } }
     watchlist: 'tmw_watchlist', // { [itemId]: { name: string, target: number } }
+    watchlistHigh: 'tmw_watchlist_high', // { [itemId]: { name: string, target: number } }
     settings: 'tmw_settings', // { goodThreshold, overpriceMultiplier, refreshSeconds, apiBase, dockIconLight, dockIconDark, dockShape, minimal, colorblind, showOnlyDeals, hideOverpriced, alwaysConfirm, disableOverConfirm, sounds, quiet, compactBadges, badgePosition, openOnHit, monitorEnabled, monitorIntervalSec }
     monitor: 'tmw_monitor', // { [itemId]: { min:number|null, ts:number, alertedTs?:number } }
     ui: 'tmw_ui_state', // { dock:{x:number,y:number}, open:boolean, apiCollapsed?:boolean }
@@ -125,7 +126,7 @@
   function pushHit(hit) {
     try {
       const arr = getHits();
-      arr.unshift(hit);
+      arr.unshift({ direction: hit.direction || 'low', ...hit });
       while (arr.length > 20) arr.pop();
       GM_setValue(STORAGE_KEYS.hits, arr);
       if (ui.panel && ui.panel.style.display === 'block') {
@@ -164,6 +165,29 @@
 
   function setWatchlist(list) {
     GM_setValue(STORAGE_KEYS.watchlist, list || {});
+  }
+
+  function getWatchlistHigh() {
+    return GM_getValue(STORAGE_KEYS.watchlistHigh, {});
+  }
+
+  function setWatchlistHigh(list) {
+    GM_setValue(STORAGE_KEYS.watchlistHigh, list || {});
+  }
+
+  function recordMonitorSample(itemId, price) {
+    try {
+      const state = { ...getMonitorState() };
+      const prev = state[itemId] || {};
+      const next = {
+        ...prev,
+        ts: Date.now(),
+        min: prev.min != null ? Math.min(prev.min, price) : price,
+        max: prev.max != null ? Math.max(prev.max, price) : price,
+      };
+      state[itemId] = next;
+      setMonitorState(state);
+    } catch (_) {}
   }
 
   function fmtMoney(n) {
@@ -219,6 +243,7 @@
     .tmw-bad-cb { background: rgba(255, 165, 0, 0.18) !important; border-left: 3px solid #ff9900 !important; }
     .tmw-watch { background: rgba(0, 120, 255, 0.12) !important; border-left: 3px solid #3498db !important; }
     .tmw-banner { position:fixed; top:12px; right:12px; z-index:2147483646; background:#fff3cd; color:#856404; border:1px solid #ffeeba; padding:8px 12px; border-radius:6px; box-shadow:0 6px 24px rgba(0,0,0,0.1); }
+    .tmw-banner-alert { background:#fee2e2; color:#7f1d1d; border-color:#fecaca; }
     .tmw-link { color:#2d6cdf; cursor:pointer; text-decoration:underline; }
     .tmw-menu { position:absolute; background:#111827; color:#e5e7eb; border:1px solid #1f2937; border-radius:8px; box-shadow:0 12px 40px rgba(0,0,0,.45); font-size:12px; padding:6px; z-index:2147483646; min-width:180px; }
     .tmw-menu .tmw-menu-item { padding:6px 8px; border-radius:6px; cursor:pointer; }
@@ -256,16 +281,25 @@
         anonymous: true,
         onload: (resp) => {
           __lastReqTs = Date.now();
-          if (resp.status === 429) { __backoffUntil = Date.now() + 2*60*1000; notify('Cooling down after rate limit'); return reject(new Error('429')); }
+          if (resp.status === 429) {
+            __backoffUntil = Date.now() + 2*60*1000;
+            notify('Cooling down after rate limit');
+            showApiErrorBanner('Rate limited by Torn API. Cooling down and retrying soon.');
+            return reject(new Error('429'));
+          }
           try {
             const j = JSON.parse(resp.responseText || 'null');
             if (!j) return reject(new Error('Empty response'));
-            if (j.error) return reject(new Error(`Torn API error: ${j.error.code} ${j.error.error}`));
+            if (j.error) {
+              showApiErrorBanner(`Torn API error ${j.error.code}: ${j.error.error}. Check your key (Market access) or API status.`);
+              return reject(new Error(`Torn API error: ${j.error.code} ${j.error.error}`));
+            }
+            hideApiErrorBanner();
             resolve(j);
           } catch (e) { reject(e); }
         },
-        onerror: () => { __lastReqTs = Date.now(); reject(new Error('Network error')); },
-        ontimeout: () => { __lastReqTs = Date.now(); reject(new Error('Network timeout')); },
+        onerror: () => { __lastReqTs = Date.now(); showApiErrorBanner('Network error contacting Torn API.'); reject(new Error('Network error')); },
+        ontimeout: () => { __lastReqTs = Date.now(); showApiErrorBanner('Torn API request timed out.'); reject(new Error('Network timeout')); },
       });
     });
   }
@@ -276,7 +310,13 @@
     if (!force && cached && cached.ts && now() - cached.ts < ttl) {
       return cached;
     }
-    const data = await apiFetchJson(`${API_BASE}/torn/?selections=items`);
+    let data;
+    try {
+      data = await apiFetchJson(`${API_BASE}/torn/?selections=items`);
+    } catch (err) {
+      showApiErrorBanner('Unable to load item directory. Check that your API key has Market access.');
+      throw err;
+    }
     const items = data.items || {};
     const itemsById = {};
     const idByName = {};
@@ -286,6 +326,7 @@
     }
     const packed = { ts: now(), itemsById, idByName };
     setItemsDict(packed);
+    hideApiErrorBanner();
     return packed;
   }
 
@@ -294,7 +335,8 @@
     const listings = (j?.market || []).map((x) => Number(x.cost)).filter((n) => !isNaN(n));
     const med = median(listings);
     const min = listings.length ? Math.min(...listings) : null;
-    return { median: med, min: min ?? med ?? null, sample: listings.length };
+    const max = listings.length ? Math.max(...listings) : null;
+    return { median: med, min: min ?? med ?? null, max: max ?? med ?? null, sample: listings.length };
   }
 
   async function getFairValue(itemId, itemsDict) {
@@ -309,11 +351,13 @@
       const fresh = { ts: now(), ...m };
       cache[itemId] = fresh;
       setMarketCache(cache);
+      hideApiErrorBanner();
       return fresh;
     } catch (e) {
       console.warn('TMW: market median fetch failed; falling back to market_value', e);
+      showApiErrorBanner('Unable to reach Torn market listings. Using cached market value until API responds.');
       const fallback = itemsDict?.itemsById?.[itemId]?.market_value || null;
-      const fresh = { ts: now(), median: fallback, min: fallback, sample: 0 };
+      const fresh = { ts: now(), median: fallback, min: fallback, max: fallback, sample: 0 };
       cache[itemId] = fresh;
       setMarketCache(cache);
       return fresh;
@@ -337,34 +381,33 @@
       <style>
         :host { all: initial; }
         .dock { position:fixed; bottom:0; right:0; transform: translate(0,0); }
-        .dock-btn { position:relative; width:56px; height:56px; border-radius:22px; color:#e2e8f0; border:1px solid rgba(148,163,184,.18);
-          box-shadow: 0 18px 32px rgba(8,15,40,.55), inset 0 0 0 1px rgba(148,163,184,.08);
-          cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:24px; transition: transform .18s ease, filter .2s ease, box-shadow .22s ease;
-          background: linear-gradient(155deg, rgba(30,41,59,.9), rgba(15,23,42,.96)), radial-gradient(circle at 30% 18%, rgba(148,197,253,.28), rgba(15,23,42,0) 58%);
-          overflow:hidden; backdrop-filter: blur(6px);
+        .dock-btn { position:relative; width:60px; height:60px; border-radius:20px; color:#f8fafc; border:1px solid rgba(148,197,253,.18);
+          box-shadow: 0 24px 38px rgba(8,15,40,.58), inset 0 0 0 1px rgba(148,197,253,.12);
+          cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:24px; transition: transform .2s ease, box-shadow .25s ease;
+          background: linear-gradient(160deg, rgba(15,23,42,.95), rgba(30,41,59,.9)); overflow:hidden; backdrop-filter: blur(8px);
         }
-        .dock-btn::before { content:""; position:absolute; inset:3px; border-radius:18px; background: linear-gradient(160deg, rgba(59,130,246,.22), rgba(30,64,175,0) 70%);
-          opacity:.85; transition: opacity .22s ease; pointer-events:none; }
-        .dock-btn::after { content:""; position:absolute; inset:0; border-radius:22px; border:1px solid rgba(148,197,253,.65);
-          opacity:0; transition: opacity .22s ease; pointer-events:none; }
-        .dock-btn:hover { transform: translateY(-2px); box-shadow: 0 26px 38px rgba(2,6,23,.62), inset 0 0 0 1px rgba(148,163,184,.12);
-          filter: brightness(1.05); }
-        .dock-btn:hover::before { opacity:1; }
-        .dock-btn:hover::after { opacity:0.9; }
-        .dock-btn:active { transform: translateY(0) scale(.97); box-shadow: inset 0 6px 14px rgba(2,6,23,.65), inset 0 0 0 1px rgba(148,163,184,.18); }
+        .dock-btn::before { content:""; position:absolute; inset:-40%; border-radius:50%; background:
+            radial-gradient(65% 70% at 20% 40%, rgba(96,165,250,.55), transparent 75%),
+            radial-gradient(60% 65% at 80% 30%, rgba(236,72,153,.45), transparent 80%),
+            radial-gradient(75% 80% at 50% 120%, rgba(16,185,129,.4), transparent 85%);
+          mix-blend-mode: screen; animation: tmw-aurora-btn 14s ease-in-out infinite; opacity:.9; }
+        .dock-btn::after { content:""; position:absolute; inset:-35%; border-radius:50%; background:
+            radial-gradient(45% 50% at 30% 20%, rgba(148,197,253,.35), transparent 70%),
+            radial-gradient(55% 60% at 70% 80%, rgba(96,165,250,.28), transparent 75%);
+          mix-blend-mode: screen; animation: tmw-aurora-btn2 18s ease-in-out infinite; opacity:.7; }
+        .dock-btn:hover { transform: translateY(-3px); box-shadow: 0 30px 46px rgba(8,15,40,.65), inset 0 0 0 1px rgba(148,197,253,.18); }
+        .dock-btn:active { transform: translateY(0) scale(.96); }
+        #tmw-emoji, .icon-preview, .dock-btn .yell, .dock-btn .flare { display:none !important; }
         .dock-btn.tmw-breathe { animation: tmw-breath 3.2s ease-in-out infinite alternate; }
         .dock-btn.tmw-pop { animation: tmw-pop 600ms ease; }
         .dock-btn.tmw-spin { animation: tmw-spin 480ms ease-out; }
+        .dock-btn.tmw-spin-open { animation: tmw-spin-open 700ms ease-out; }
         /* Irritated effect */
         .dock-btn.tmw-irritated { animation: tmw-shake 600ms cubic-bezier(.36,.07,.19,.97) both; }
         .dock-btn.tmw-irritated .icon-preview { filter: drop-shadow(0 0 10px rgba(255,59,48,.8)); }
         .dock-btn.tmw-irritated::before { opacity:1; }
         .dock-btn.tmw-irritated::after { opacity:1; }
         /* Hover yell: show sound waves and tilt */
-        .dock-btn .yell { position:absolute; left:-6px; top:50%; width:12px; height:12px; transform: translate(-50%, -50%) rotate(35deg) scale(.9); opacity:0; pointer-events:none; }
-        .dock-btn .yell, .dock-btn .yell::before, .dock-btn .yell::after { box-sizing:border-box; border:2px solid #fca5a5; border-left-color: transparent; border-top-color: transparent; border-bottom-color: transparent; border-radius:50%; filter: drop-shadow(0 0 6px rgba(252,165,165,.35)); }
-        .dock-btn .yell::before { content:""; position:absolute; inset:-6px; opacity:.75; }
-        .dock-btn .yell::after { content:""; position:absolute; inset:-12px; opacity:.55; }
         .dock-btn:hover .yell { opacity:1; animation: tmw-yell 900ms ease-out infinite; }
         .dock-btn:hover .icon-preview, .dock-btn:hover #tmw-emoji { transform: scale(1.08) rotate(-6deg); }
         .dock-btn.state-active { background: linear-gradient(155deg, rgba(30,41,59,.9), rgba(15,23,42,.96)), radial-gradient(circle at 30% 18%, rgba(59,130,246,.35), rgba(15,23,42,0) 58%); }
@@ -384,25 +427,26 @@
         .dot { position:absolute; top:6px; right:6px; width:9px; height:9px; border-radius:50%; background:#10b981; box-shadow:0 0 10px rgba(16,185,129,.75); display:none; }
         .dot.show { display:block; }
         .panel { position:fixed; bottom:54px; right:0; width:340px; max-height:70vh; background:rgba(15,23,42,0.9); color:#f1f5f9; border-radius:18px; box-shadow:0 20px 52px rgba(15,23,42,.48); border:1px solid rgba(99,102,241,.2); display:none; overflow:hidden; transform-origin: bottom right; backdrop-filter: blur(14px); }
-        .panel::before, .panel::after, .panel .stars { content:""; position:absolute; inset:-35%; border-radius:48px; pointer-events:none; opacity:0; transition: opacity .52s ease; }
+        .panel::before, .panel::after, .panel .stars { content:""; position:absolute; inset:-14%; border-radius:50px; pointer-events:none; opacity:0; transition: opacity .52s ease; }
         .panel::before { background:
-            radial-gradient(70% 62% at 18% 12%, rgba(59,130,246,.32), transparent 70%),
-            radial-gradient(55% 58% at 88% 6%, rgba(236,72,153,.28), transparent 74%),
-            radial-gradient(65% 70% at 46% 104%, rgba(56,189,248,.24), transparent 78%);
-          filter: blur(62px); mix-blend-mode: screen; animation: tmw-aurora-pulse 18s ease-in-out infinite; }
-        .panel::after { background: linear-gradient(125deg, rgba(59,130,246,.40), rgba(236,72,153,.36), rgba(16,185,129,.34), rgba(59,130,246,.4));
-          background-size:240% 240%; mix-blend-mode: screen; animation: tmw-aurora-flow 22s ease-in-out infinite; }
-        .panel .stars { inset:-20%; border-radius:32px; background:
-            radial-gradient(2px 2px at 10% 20%, rgba(226,232,240,.9), transparent 55%),
-            radial-gradient(1.5px 1.5px at 30% 45%, rgba(148,197,253,.7), transparent 60%),
-            radial-gradient(1.8px 1.8px at 70% 30%, rgba(191,219,254,.8), transparent 65%),
-            radial-gradient(1.4px 1.4px at 55% 75%, rgba(226,232,240,.7), transparent 65%),
-            radial-gradient(2px 2px at 85% 60%, rgba(191,219,254,.85), transparent 60%),
-            radial-gradient(1.2px 1.2px at 42% 18%, rgba(226,232,240,.65), transparent 60%);
-          opacity:.55; filter: blur(.2px); animation: tmw-stars-twinkle 8s ease-in-out infinite; }
-        .panel.tmw-active::before { opacity:.55; }
-        .panel.tmw-active::after { opacity:.68; }
-        .panel.tmw-active .stars { opacity:.7; }
+            radial-gradient(60% 58% at 50% 28%, rgba(59,130,246,.36), transparent 72%),
+            radial-gradient(55% 62% at 72% 18%, rgba(236,72,153,.32), transparent 76%),
+            radial-gradient(70% 78% at 42% 115%, rgba(56,189,248,.26), transparent 80%);
+          filter: blur(58px); mix-blend-mode: screen; animation: tmw-aurora-pulse 18s ease-in-out infinite; }
+        .panel::after { background: linear-gradient(135deg, rgba(59,130,246,.42), rgba(236,72,153,.38), rgba(16,185,129,.36), rgba(59,130,246,.42));
+          background-size:250% 250%; mix-blend-mode: screen; animation: tmw-aurora-flow 22s ease-in-out infinite; }
+        .panel .stars { inset:-8%; border-radius:36px; background:
+            radial-gradient(2px 2px at 18% 22%, rgba(226,232,240,.92), transparent 60%),
+            radial-gradient(1.6px 1.6px at 36% 48%, rgba(148,197,253,.78), transparent 62%),
+            radial-gradient(2.2px 2.2px at 68% 32%, rgba(191,219,254,.88), transparent 60%),
+            radial-gradient(1.3px 1.3px at 52% 74%, rgba(226,232,240,.72), transparent 65%),
+            radial-gradient(1.8px 1.8px at 82% 58%, rgba(191,219,254,.82), transparent 62%),
+            radial-gradient(1.4px 1.4px at 28% 68%, rgba(148,197,253,.7), transparent 64%),
+            radial-gradient(1.6px 1.6px at 60% 16%, rgba(226,232,240,.75), transparent 60%);
+          opacity:.7; filter: blur(.15px); animation: tmw-stars-twinkle 9s ease-in-out infinite; }
+        .panel.tmw-active::before { opacity:.78; }
+        .panel.tmw-active::after { opacity:.82; }
+        .panel.tmw-active .stars { opacity:.84; }
         .hdr { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #1f2937; }
         .ttl { font-weight:700; font-size:14px; letter-spacing:.2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .xbtn { background:none; border:none; color:#9ca3af; font-size:18px; cursor:pointer; }
@@ -450,6 +494,25 @@
         .hit-meta { font-size:11px; color:#94a3b8; margin-top:4px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
         .hit-meta a { color:#93c5fd; text-decoration:none; font-weight:600; }
         .hit-meta a:hover { text-decoration:underline; }
+        .tmw-quick-panel { position:fixed; width:240px; background:rgba(10,17,35,.95); border:1px solid rgba(148,197,253,.3); border-radius:14px; padding:14px 16px; box-shadow:0 26px 48px rgba(8,15,40,.65); display:flex; flex-direction:column; gap:12px; z-index:2147483647; backdrop-filter: blur(10px); }
+        .tmw-quick-panel::before { content:""; position:absolute; top:var(--arrow-top, 50%); right:-12px; transform: translateY(-50%); border-width:10px; border-style:solid; border-color: transparent transparent transparent rgba(10,17,35,.95); }
+        .tmw-quick-panel::after { content:""; position:absolute; top:var(--arrow-top, 50%); right:-14px; transform: translateY(-50%); border-width:12px; border-style:solid; border-color: transparent transparent transparent rgba(148,197,253,.18); filter: blur(.3px); }
+        .tmw-quick-panel input[type="range"] { width:100%; accent-color:#60a5fa; }
+        .tmw-quick-panel.muted-slider input[type="range"] { opacity:.4; }
+        .quick-header { display:flex; align-items:center; justify-content:space-between; font-size:12px; font-weight:600; color:#e0f2fe; letter-spacing:.35px; text-transform:uppercase; }
+        .quick-header button { background:none; border:none; color:#94a3b8; font-size:18px; cursor:pointer; padding:0; line-height:1; }
+        .quick-body { display:flex; flex-direction:column; gap:10px; font-size:12px; }
+        .quick-label { display:flex; justify-content:space-between; color:#cbd5e1; font-size:12px; }
+        .quick-option { display:flex; align-items:center; gap:8px; color:#cbd5e1; font-size:12px; transition: color .2s ease; }
+        .quick-option.active { color:#f8fafc; font-weight:600; }
+        .quick-option input { margin:0; accent-color:#2563eb; }
+        .quick-footer { display:flex; justify-content:flex-end; gap:8px; }
+        .quick-footer button { background:#1d4ed8; border:none; color:#f8fafc; padding:6px 10px; border-radius:8px; cursor:pointer; font-size:12px; }
+        .quick-footer button[data-act="test"] { background:#0f172a; border:1px solid rgba(148,197,253,.3); color:#e0f2fe; }
+        .quick-toast { align-self:flex-end; background:rgba(59,130,246,.22); border:1px solid rgba(148,197,253,.35); color:#e0f2fe; padding:3px 10px; border-radius:999px; font-size:11px; opacity:0; transform: translateY(-6px); transition: opacity .2s ease, transform .2s ease; pointer-events:none; }
+        .quick-toast.show { opacity:1; transform: translateY(0); }
+        .badge-high { color:#fca5a5; }
+        .badge-low { color:#a7f3d0; }
         .toggle-stack { display:flex; flex-direction:column; gap:6px; margin-top:12px; }
         .toggle { display:flex; gap:10px; align-items:center; padding:8px 10px; border-radius:10px; border:1px solid #1f2937; background:#0b1220; color:#e5e7eb; font-size:12px; }
         .toggle input { margin:0; accent-color:#2563eb; }
@@ -463,14 +526,26 @@
         @keyframes tmw-flicker { 0%{ opacity:.25; } 40%{ opacity:.45; } 55%{ opacity:.2; } 80%{ opacity:.4; } 100%{ opacity:.25; } }
         @keyframes tmw-rotate { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
         .panel.tmw-anim-in { animation: tmw-panel-in 320ms cubic-bezier(.2,.7,.2,1); }
-        @keyframes tmw-aurora-flow { 0%{ background-position:0% 50%; } 25%{ background-position:50% 40%; } 50%{ background-position:100% 60%; } 75%{ background-position:50% 70%; } 100%{ background-position:0% 50%; } }
+        @keyframes tmw-aurora-flow { 0%{ background-position:20% 40%; } 25%{ background-position:60% 45%; } 50%{ background-position:80% 55%; } 75%{ background-position:40% 65%; } 100%{ background-position:20% 40%; } }
+        @keyframes tmw-aurora-btn { 0%{ transform: translate3d(-4%,2%,0) rotate(0deg) scale(1); opacity:.9; }
+          35%{ transform: translate3d(3%,-3%,0) rotate(5deg) scale(1.06); opacity:1; }
+          70%{ transform: translate3d(-2%,4%,0) rotate(-4deg) scale(1.08); opacity:.82; }
+          100%{ transform: translate3d(-4%,2%,0) rotate(0deg) scale(1); opacity:.9; } }
+        @keyframes tmw-aurora-btn2 { 0%{ transform: translate3d(3%,-2%,0) scale(1); opacity:.7; }
+          40%{ transform: translate3d(-3%,3%,0) scale(1.05); opacity:.85; }
+          80%{ transform: translate3d(2%,-3%,0) scale(1.02); opacity:.68; }
+          100%{ transform: translate3d(3%,-2%,0) scale(1); opacity:.7; } }
         @keyframes tmw-aurora-pulse { 0%{ transform: translate3d(0,0,0) scale(1); } 30%{ transform: translate3d(-3%,2%,0) scale(1.04); } 60%{ transform: translate3d(2%,-3%,0) scale(1.07); } 100%{ transform: translate3d(0,0,0) scale(1); } }
         @keyframes tmw-stars-twinkle { 0%,100% { opacity:.6; transform: translate3d(0,0,0); } 30% { opacity:.85; transform: translate3d(-1%,-2%,0); } 55% { opacity:.5; transform: translate3d(1%,2%,0); } 80% { opacity:.75; transform: translate3d(-0.5%,1%,0); } }
-        @keyframes tmw-aurora-glow { 0%{ transform: translate3d(0,0,0) scale(1); opacity:.6; } 40%{ transform: translate3d(-2%,1%,0) scale(1.05); opacity:.8; } 70%{ transform: translate3d(2%,-1%,0) scale(1.08); opacity:.55; } 100%{ transform: translate3d(0,0,0) scale(1); opacity:.6; }
+        @keyframes tmw-aurora-glow { 0%{ transform: translate3d(-1%,0,0) scale(1); opacity:.68; } 40%{ transform: translate3d(-3%,1%,0) scale(1.05); opacity:.82; } 70%{ transform: translate3d(2%,-1%,0) scale(1.07); opacity:.58; } 100%{ transform: translate3d(-1%,0,0) scale(1); opacity:.68; }
+        @keyframes tmw-spin-open { 0%{ transform: rotate3d(0,0,1,0deg); }
+          45%{ transform: rotate3d(0,0,1,220deg); }
+          100%{ transform: rotate3d(0,0,1,360deg); } }
         @keyframes tmw-pulse { 0%{ transform: scale(1); opacity:.8;} 70%{ transform: scale(1.35); opacity:.3;} 100%{ transform: scale(1); opacity:.8;} }
+        .tmw-target { outline:2px solid rgba(96,165,250,.85) !important; box-shadow:0 0 0 4px rgba(30,64,175,.25); animation: tmw-target-pulse 1.4s ease-in-out infinite alternate; border-radius:8px; }
+        @keyframes tmw-target-pulse { from { box-shadow:0 0 0 4px rgba(30,64,175,.25); } to { box-shadow:0 0 18px 6px rgba(94,234,212,.45); } }
         .idle-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#93c5fd; margin-left:8px; box-shadow:0 0 8px rgba(59,130,246,.6); animation: tmw-pulse 2.2s ease-in-out infinite; vertical-align:middle; }
-        @media (prefers-reduced-motion: reduce) { .dock-btn.tmw-breathe, .dock-btn.tmw-pop, .dock-btn.tmw-spin, .dock-btn.tmw-irritated, .dock-btn .yell, .panel.tmw-anim-in, .idle-dot, .panel::before { animation: none !important; } }
-        @keyframes tmw-yell { 0% { transform: translate(-50%, -50%) rotate(35deg) scale(.85); opacity:.9; } 70% { opacity:1; } 100% { transform: translate(-50%, -50%) rotate(35deg) scale(1.1); opacity:.6; } }
+        @media (prefers-reduced-motion: reduce) { .dock-btn.tmw-breathe, .dock-btn.tmw-pop, .dock-btn.tmw-spin, .dock-btn.tmw-irritated, .panel.tmw-anim-in, .idle-dot, .panel::before { animation: none !important; } }
         @keyframes tmw-shake {
           10% { transform: translate(-1px,0) rotate(-2deg); }
           20% { transform: translate(2px,0) rotate(2deg); }
@@ -491,17 +566,9 @@
         .tmw-row > div { flex:1; }
         .tmw-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
         .api-pill { background:#0f5132; border:1px solid #14532d; color:#d1fae5; display:inline-block; padding:6px 10px; border-radius:999px; font-size:12px; }
-        details.section { border:1px solid #1f2937; border-radius:10px; margin:8px 0; background:#0b1220; }
-        details.section > summary { cursor:pointer; padding:8px 10px; font-weight:600; color:#cbd5e1; outline:none; list-style:none; }
-        details.section > summary::-webkit-details-marker{ display:none; }
-        details.section[open] > summary { border-bottom:1px solid #1f2937; }
-        .sec-body { padding:10px; }
-        /* Radial side menu */
-        .tmw-radial { position:fixed; inset:0; z-index:2147483647; pointer-events:none; }
-        .tmw-radial .bg { position:absolute; inset:0; backdrop-filter: blur(0px); pointer-events:auto; background: rgba(0,0,0,0); }
-        .tmw-radial .node { position:absolute; width:36px; height:36px; border-radius:50%; background:#111827; color:#e5e7eb; border:1px solid #1f2937; box-shadow:0 8px 24px rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; font-size:12px; pointer-events:auto; cursor:pointer; transition: box-shadow .2s ease, transform .2s ease; }
-        .tmw-radial .node:hover { background:#1f2937; box-shadow:0 10px 28px rgba(59,130,246,.4); transform: translateY(-1px); }
-        .tmw-radial .legend { position:absolute; padding:4px 8px; border-radius:8px; background:#111827; color:#9ca3af; border:1px solid #1f2937; font-size:11px; box-shadow:0 8px 24px rgba(0,0,0,.35); pointer-events:none; white-space:nowrap; }
+        section.section { border:1px solid #1f2937; border-radius:12px; margin:10px 0; background:rgba(15,23,42,.78); box-shadow:0 12px 32px rgba(8,15,40,.32); }
+        .sec-head { padding:10px 12px; font-weight:600; color:#e0f2fe; text-transform:uppercase; letter-spacing:.38px; border-bottom:1px solid rgba(148,163,184,.14); }
+        .sec-body { padding:12px; }
         /* (audio hint removed) */
       </style>
       <div class="dock" id="tmw-dock">
@@ -539,7 +606,7 @@
       try { irritateDock(); } catch(_) {}
     });
     btn.addEventListener('dblclick', (e) => { e.preventDefault(); const s = getSettings(); s.showOnlyDeals = !s.showOnlyDeals; setSettings(s); notify('Toggled deals-only'); scanDomSoon(); });
-    btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openRadialMenu(e); });
+    btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openDockMenu(e); });
     shadow.getElementById('tmw-close').addEventListener('click', () => togglePanel(false));
     enableDockDrag();
     GM_registerMenuCommand('TMW: Open Settings', () => togglePanel(true));
@@ -570,40 +637,11 @@
 
   function applyDockIcon() {
     try {
-      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const { dockIconLight, dockIconDark } = getSettings();
-      const userIcon = (typeof GM_getValue === 'function') ? (GM_getValue(STORAGE_KEYS.userIcon, '') || '') : '';
-      const BUDDY_FALLBACK_URL = 'https://lvciid.github.io/lvciids-market-watcher/assets/buddy.png';
-      // Prefer baked buddy, then user override, then theme default
-      let dockIcon = CUSTOM_ICON_URL || userIcon || (prefersDark ? (dockIconDark || dockIconLight) : (dockIconLight || dockIconDark));
-      const btn = ui.shadow.getElementById('tmw-dock-btn');
       const emoji = ui.shadow.getElementById('tmw-emoji');
       const img = ui.shadow.getElementById('tmw-icon-img');
-      if (!dockIcon || dockIcon === '🐶') {
-        // default to owner-provided LV SVG
-        img.src = prefersDark ? DOCK_ICON_DEFAULT_DARK : DOCK_ICON_DEFAULT_LIGHT;
-        img.style.display = '';
-        emoji.style.display = 'none';
-      } else if (/^(https?:|data:)/i.test(dockIcon)) {
-        img.onerror = null;
-        img.src = dockIcon;
-        img.style.display = '';
-        emoji.style.display = 'none';
-      } else {
-        // treat as text/emoji
-        emoji.textContent = dockIcon;
-        emoji.style.display = '';
-        img.style.display = 'none';
-        img.removeAttribute('src');
-      }
-      // If data: URLs are blocked by CSP, fall back to hosted PNG
-      if (img && CUSTOM_ICON_URL && /^data:/i.test(CUSTOM_ICON_URL)) {
-        img.onerror = () => { try { img.onerror = null; img.src = BUDDY_FALLBACK_URL; } catch(_) {} };
-        if (img.complete && img.naturalWidth === 0) { try { img.src = BUDDY_FALLBACK_URL; } catch(_) {} }
-      }
-      // Style font-based emblem (fallback only)
-      if (emoji && emoji.style.display !== 'none') { emoji.style.fontFamily = "ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif"; emoji.style.fontStyle='italic'; emoji.style.fontWeight='600'; emoji.style.textShadow='0 1px 0 rgba(0,0,0,.25), 0 0 6px rgba(255,255,255,.25)'; }
-    } catch(_) {}
+      if (img) { img.removeAttribute('src'); img.style.display = 'none'; }
+      if (emoji) { emoji.textContent = ''; emoji.style.display = 'none'; }
+    } catch (_) {}
   }
 
   // Make the dock look irritated and hop around briefly
@@ -767,42 +805,177 @@
 
   function openDockMenu(ev) {
     try {
+      ev.preventDefault();
       closeQuickMenu();
-      const menu = document.createElement('div');
-      menu.className = 'tmw-menu';
+      const btn = ui.shadow.getElementById('tmw-dock-btn');
+      if (!btn) return;
       const s = getSettings();
-      const pausedLabel = s.paused ? 'Resume' : 'Pause';
-      const dealsLabel = (s.showOnlyDeals ? '✓ ' : '') + (s.showOnlyDeals ? 'Show all' : 'Show deals only');
-      const overLabel = (s.hideOverpriced ? '✓ ' : '') + (s.hideOverpriced ? 'Show overpriced' : 'Hide overpriced');
-      const iconControls = !LOCK_BUDDY_ICON ? '<div class="tmw-menu-item" data-act="icon-choose">Set custom icon…</div>\n        <div class="tmw-menu-item" data-act="icon-clear">Clear custom icon</div>' : '';
-      menu.innerHTML = `
-        <div class="tmw-menu-item" data-act="toggle-pause">${pausedLabel}</div>
-        <div class="tmw-menu-item" data-act="toggle-deals">${dealsLabel}</div>
-        <div class="tmw-menu-item" data-act="toggle-over">${overLabel}</div>
-        ${iconControls}
-        <div class="tmw-menu-item" data-act="open-settings">Open settings</div>
-        <div class="tmw-menu-item" data-act="extras">Extra settings…</div>
+      const panel = document.createElement('div');
+      panel.className = 'tmw-quick-panel';
+      const volPct = Math.round(((s.volume != null ? s.volume : DEFAULTS.volume) || 0) * 100);
+      panel.innerHTML = `
+        <div class="quick-header">
+          <span>Quick Controls</span>
+          <button type="button" class="quick-close" aria-label="Close quick controls">×</button>
+        </div>
+        <div class="quick-body">
+          <label class="quick-label">Volume <span id="tmw-quick-volume-val">${volPct}%</span></label>
+          <input id="tmw-quick-volume" type="range" min="0" max="100" value="${volPct}">
+          <label class="quick-option"><input id="tmw-quick-sounds" type="checkbox" ${s.sounds ? 'checked' : ''}>Sound on hit</label>
+          <label class="quick-option"><input id="tmw-quick-open" type="checkbox" ${s.openOnHit ? 'checked' : ''}>Open panel on hit</label>
+          <label class="quick-option"><input id="tmw-quick-monitor" type="checkbox" ${s.monitorEnabled ? 'checked' : ''}>Background monitor</label>
+          <label class="quick-option"><input id="tmw-quick-deals" type="checkbox" ${s.showOnlyDeals ? 'checked' : ''}>Show deals only</label>
+          <label class="quick-option"><input id="tmw-quick-over" type="checkbox" ${s.hideOverpriced ? 'checked' : ''}>Hide overpriced</label>
+        </div>
+        <div class="quick-footer">
+          <button type="button" data-act="test">Test chime</button>
+          <button type="button" data-act="open-settings">Full settings</button>
+        </div>
       `;
-      document.body.appendChild(menu);
-      const x = (ev.clientX || 0) + window.scrollX;
-      const y = (ev.clientY || 0) + window.scrollY;
-      menu.style.left = `${Math.min(x, window.scrollX + window.innerWidth - 196)}px`;
-      menu.style.top = `${Math.min(y, window.scrollY + window.innerHeight - 160)}px`;
-      tmwActiveMenu = menu;
-      const onDoc = (e2) => { if (!menu.contains(e2.target)) { closeQuickMenu(); document.removeEventListener('mousedown', onDoc, true); } };
-      document.addEventListener('mousedown', onDoc, true);
-      menu.addEventListener('click', (e3) => {
-        const act = e3.target.getAttribute('data-act'); if (!act) return;
-        const st = getSettings();
-        if (act === 'toggle-pause') { st.paused = !st.paused; setSettings(st); notify(st.paused?'Paused':'Resumed'); }
-        else if (act === 'toggle-deals') { st.showOnlyDeals = !st.showOnlyDeals; setSettings(st); notify(st.showOnlyDeals ? 'Deals-only: ON' : 'Deals-only: OFF'); }
-        else if (act === 'toggle-over') { st.hideOverpriced = !st.hideOverpriced; setSettings(st); notify(st.hideOverpriced ? 'Hide overpriced: ON' : 'Hide overpriced: OFF'); }
-        else if (act === 'open-settings') { togglePanel(true); }
-        else if (act === 'icon-choose') { if (!LOCK_BUDDY_ICON) openIconPicker(); }
-        else if (act === 'icon-clear') { if (!LOCK_BUDDY_ICON) clearUserIcon(); }
-        else if (act === 'extras') { openExtraSettings(); }
-        closeQuickMenu(); updateDockState(); scanDomSoon();
+      ui.shadow.appendChild(panel);
+      tmwActiveMenu = panel;
+
+      const rect = btn.getBoundingClientRect();
+      const panelHeight = panel.offsetHeight || 200;
+      const right = Math.max(16, window.innerWidth - rect.left + 14);
+      let top = rect.top + rect.height / 2 - panelHeight / 2;
+      top = Math.max(16, Math.min(window.innerHeight - panelHeight - 16, top));
+      panel.style.right = `${right}px`;
+      panel.style.top = `${top}px`;
+      const arrowOffset = (rect.top + rect.height / 2) - top;
+      panel.style.setProperty('--arrow-top', `${Math.max(18, Math.min(panelHeight - 18, arrowOffset))}px`);
+
+      const slider = panel.querySelector('#tmw-quick-volume');
+      const volumeLabel = panel.querySelector('#tmw-quick-volume-val');
+      const soundsToggle = panel.querySelector('#tmw-quick-sounds');
+      const openToggle = panel.querySelector('#tmw-quick-open');
+      const monitorToggle = panel.querySelector('#tmw-quick-monitor');
+      const dealsToggle = panel.querySelector('#tmw-quick-deals');
+      const overToggle = panel.querySelector('#tmw-quick-over');
+      const testBtn = panel.querySelector('[data-act="test"]');
+      const fullBtn = panel.querySelector('[data-act="open-settings"]');
+      const closeBtn = panel.querySelector('.quick-close');
+
+      const applySettings = (mutator) => {
+        const current = { ...getSettings() };
+        mutator(current);
+        setSettings(current);
+      };
+
+      let toastTimer = null;
+      const flashQuickStatus = (message) => {
+        if (!panel) return;
+        let toast = panel.querySelector('.quick-toast');
+        if (!toast) {
+          toast = document.createElement('div');
+          toast.className = 'quick-toast';
+          panel.appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.classList.remove('show');
+        void toast.offsetWidth;
+        toast.classList.add('show');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          if (toast) toast.classList.remove('show');
+        }, 1400);
+        panel._toastTimer = toastTimer;
+      };
+
+      const setActiveToggle = (el) => {
+        if (!el) return;
+        const wrap = el.closest('.quick-option');
+        if (wrap) wrap.classList.toggle('active', !!el.checked);
+      };
+
+      const updateSliderState = (initial = false) => {
+        const enabled = !!getSettings().sounds;
+        slider.disabled = !enabled;
+        panel.classList.toggle('muted-slider', !enabled);
+        setActiveToggle(soundsToggle);
+        if (!initial) {
+          flashQuickStatus(enabled ? 'Sound alerts on' : 'Sound alerts muted');
+        }
+      };
+
+      slider.addEventListener('input', (e2) => {
+        const value = Math.max(0, Math.min(100, Number(e2.target.value) || 0));
+        volumeLabel.textContent = `${value}%`;
+        applySettings((cfg) => { cfg.volume = value / 100; });
       });
+      slider.addEventListener('change', () => {
+        flashQuickStatus(`Volume ${slider.value}%`);
+      });
+
+      soundsToggle.addEventListener('change', () => {
+        applySettings((cfg) => { cfg.sounds = !!soundsToggle.checked; });
+        updateSliderState();
+      });
+
+      openToggle.addEventListener('change', () => {
+        applySettings((cfg) => { cfg.openOnHit = !!openToggle.checked; });
+        setActiveToggle(openToggle);
+        flashQuickStatus(openToggle.checked ? 'Panel opens on alerts' : 'Panel stays closed on alerts');
+      });
+
+      monitorToggle.addEventListener('change', () => {
+        applySettings((cfg) => { cfg.monitorEnabled = !!monitorToggle.checked; });
+        updateDockState();
+        setActiveToggle(monitorToggle);
+        flashQuickStatus(monitorToggle.checked ? 'Background monitor enabled' : 'Background monitor paused');
+      });
+
+      dealsToggle.addEventListener('change', () => {
+        const enabled = !!dealsToggle.checked;
+        applySettings((cfg) => { cfg.showOnlyDeals = enabled; });
+        setActiveToggle(dealsToggle);
+        flashQuickStatus(enabled ? 'Deals-only filter on' : 'Deals-only filter off');
+        scanDomSoon();
+      });
+
+      overToggle.addEventListener('change', () => {
+        const enabled = !!overToggle.checked;
+        applySettings((cfg) => { cfg.hideOverpriced = enabled; });
+        setActiveToggle(overToggle);
+        flashQuickStatus(enabled ? 'Hiding overpriced listings' : 'Showing all listings');
+        scanDomSoon();
+      });
+
+      testBtn.addEventListener('click', () => {
+        if (!getSettings().sounds) { flashQuickStatus('Enable sound on hit to test'); return; }
+        flashQuickStatus('Playing chime');
+        try { playHitSound(); } catch (_) {}
+      });
+
+      fullBtn.addEventListener('click', () => {
+        flashQuickStatus('Opening full settings…');
+        closeQuickMenu();
+        togglePanel(true);
+      });
+
+      closeBtn.addEventListener('click', () => closeQuickMenu());
+
+      updateSliderState(true);
+      setActiveToggle(openToggle);
+      setActiveToggle(monitorToggle);
+      setActiveToggle(dealsToggle);
+      setActiveToggle(overToggle);
+
+      const onOutside = (evt) => {
+        const path = evt.composedPath ? evt.composedPath() : [];
+        if (panel.contains(evt.target) || path.includes(panel) || btn.contains(evt.target) || path.includes(btn)) return;
+        closeQuickMenu();
+      };
+      tmwMenuOutside = onOutside;
+      document.addEventListener('mousedown', onOutside, true);
+
+      const onKey = (evt) => {
+        if (evt.key === 'Escape') {
+          closeQuickMenu();
+        }
+      };
+      tmwMenuKeyHandler = onKey;
+      window.addEventListener('keydown', onKey, true);
     } catch(_) {}
   }
 
@@ -936,70 +1109,6 @@
     } catch(_) {}
   }
 
-  function openRadialMenu(ev) {
-    try {
-      // remove existing menus
-      closeQuickMenu();
-      const old = ui.shadow.getElementById('tmw-radial'); if (old) old.remove();
-      const root = document.createElement('div'); root.id='tmw-radial'; root.className='tmw-radial';
-      root.innerHTML = `<div class="bg"></div>`;
-      ui.shadow.appendChild(root);
-
-      const center = ui.shadow.getElementById('tmw-dock-btn').getBoundingClientRect();
-      // In shadow fixed container, use viewport coords (no scroll offsets)
-      const cx = center.left + center.width/2;
-      const cy = center.top + center.height/2;
-      const radius = 70;
-      // Define nodes: [label, act]
-      const s = getSettings();
-      const items = [
-        { t: s.paused ? '▶' : '⏸', a: 'toggle-pause' },
-        { t: s.showOnlyDeals ? '✓D' : 'D', a: 'toggle-deals' },
-        { t: s.hideOverpriced ? '✓O' : 'O', a: 'toggle-over' },
-        { t: '⚙', a: 'open-settings' },
-        { t: '⋯', a: 'extras' },
-      ];
-      const titleFor = (act) => {
-        switch (act) {
-          case 'toggle-pause': return 'Pause / Resume';
-          case 'toggle-deals': return (getSettings().showOnlyDeals ? 'Show all' : 'Show deals only');
-          case 'toggle-over': return (getSettings().hideOverpriced ? 'Show overpriced' : 'Hide overpriced');
-          case 'open-settings': return 'Open settings';
-          case 'extras': return 'Extra settings…';
-        }
-        return '';
-      };
-      items.forEach((it, i) => {
-        const node = document.createElement('div'); node.className='node'; node.textContent = it.t; node.setAttribute('data-act', it.a); node.title = titleFor(it.a);
-        const angle = (Math.PI * 2) * (i / items.length) - Math.PI/2;
-        const x = cx + Math.cos(angle)*radius; const y = cy + Math.sin(angle)*radius;
-        node.style.left = `${x-18}px`; node.style.top = `${y-18}px`;
-        root.appendChild(node);
-      });
-      // Add a small legend near the radial explaining D/O
-      try {
-        const legend = document.createElement('div'); legend.className = 'legend'; legend.textContent = 'D = Deals only • O = Hide overpriced';
-        legend.style.left = `${cx}px`; legend.style.top = `${cy + radius + 22}px`; legend.style.transform = 'translate(-50%, -50%)';
-        root.appendChild(legend);
-      } catch(_) {}
-      const close = () => { try { root.remove(); } catch(_) {} };
-      root.querySelector('.bg').addEventListener('click', close);
-      root.addEventListener('click', (e)=>{
-        const act = e.target.getAttribute && e.target.getAttribute('data-act'); if (!act) return;
-        const st = getSettings();
-        if (act === 'toggle-pause') { st.paused = !st.paused; setSettings(st); notify(st.paused?'Paused':'Resumed'); }
-        else if (act === 'toggle-deals') { st.showOnlyDeals = !st.showOnlyDeals; setSettings(st); notify(st.showOnlyDeals ? 'Deals-only: ON' : 'Deals-only: OFF'); }
-        else if (act === 'toggle-over') { st.hideOverpriced = !st.hideOverpriced; setSettings(st); notify(st.hideOverpriced ? 'Hide overpriced: ON' : 'Hide overpriced: OFF'); }
-        else if (act === 'open-settings') { togglePanel(true); }
-        else if (act === 'extras') { openExtraSettings(); }
-        close(); updateDockState(); scanDomSoon();
-      });
-      // Close on ESC
-      const onKey = (ke) => { if (ke.key === 'Escape') { close(); window.removeEventListener('keydown', onKey, true); } };
-      window.addEventListener('keydown', onKey, true);
-    } catch(_) {}
-  }
-
   function togglePanel(open) {
     if (!ui.panel) return;
     const state = GM_getValue(STORAGE_KEYS.ui, { dock: null, open: false, scrollTop: 0 });
@@ -1012,7 +1121,11 @@
       renderSettingsPanel();
       try { const st = GM_getValue(STORAGE_KEYS.ui, { scrollTop: 0 }).scrollTop || 0; requestAnimationFrame(()=>{ const cnt = ui.shadow.getElementById('tmw-cnt'); if (cnt) cnt.scrollTop = st; }); } catch(_) {}
       try { ui.panel.classList.add('tmw-anim-in'); ui.panel.classList.add('tmw-active'); setTimeout(()=>ui.panel.classList.remove('tmw-anim-in'), 350); } catch(_) {}
-      try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-spin'); setTimeout(()=>b.classList.remove('tmw-spin'), 520); } catch(_) {}
+      try {
+        const b = ui.shadow.getElementById('tmw-dock-btn');
+        b.classList.add('tmw-spin-open');
+        setTimeout(()=>b.classList.remove('tmw-spin-open'), 720);
+      } catch(_) {}
       try { flashSignature(); } catch(_) {}
       try { const c = ui.shadow.getElementById('tmw-count'); if (c) { c.textContent = '0'; c.style.display='none'; } } catch(_) {}
     } else {
@@ -1073,14 +1186,18 @@
     const s = getSettings();
     const hasKey = !!getApiKey();
     const wl = getWatchlist();
-    const watchCount = Object.keys(wl).length;
+    const wlHigh = getWatchlistHigh();
+    const watchLowCount = Object.keys(wl).length;
+    const watchHighCount = Object.keys(wlHigh).length;
+    const watchCount = watchLowCount + watchHighCount;
     const hits = getHits();
     const lastHit = hits && hits.length ? hits[0] : null;
     const recentHits = hits.slice(0, 5);
-    const hitsSection = recentHits.length ? `<div class="list" id="tmw-hit-list">${recentHits.map(({ itemId, name, price, target, ts }) => {
+    const hitsSection = recentHits.length ? `<div class="list" id="tmw-hit-list">${recentHits.map(({ itemId, name, price, target, ts, direction }) => {
       const cleanName = escapeHtml(name || ('#' + itemId));
       const priceLabel = escapeHtml(fmtMoney(price));
-      const targetLabel = target ? escapeHtml(`target ${fmtMoney(target)}`) : '';
+      const dirSym = direction === 'high' ? '≥' : '≤';
+      const targetLabel = target ? escapeHtml(`${dirSym} ${fmtMoney(target)}`) : '';
       const timeLabel = ts ? escapeHtml(new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : '';
       return `
         <div class="item" data-id="${itemId}">
@@ -1101,12 +1218,12 @@
 
     cnt.innerHTML = `
       <div class="panel-intro">
-        <div class="panel-heading">Market watchdog control center</div>
+        <div class="panel-heading">lvciid’s Market Watcher</div>
         <div class="panel-sub">Changes save instantly. Need help? Message <a class="tmw-link" href="https://www.torn.com/profiles.php?XID=3888554" target="_blank" rel="noopener">lvciid</a> or visit <a class="tmw-link" href="https://github.com/lvciid/lvciids-market-watcher" target="_blank" rel="noopener">GitHub</a>.</div>
       </div>
 
-      <details class="section" open>
-        <summary>Overview</summary>
+      <section class="section">
+        <header class="sec-head">Overview</header>
         <div class="sec-body">
           <div class="section-grid">
             <div class="stat-card">
@@ -1117,7 +1234,7 @@
             <div class="stat-card">
               <div class="stat-label">Watchlist items</div>
               <div class="stat-value">${watchCount}</div>
-              <div class="stat-meta">${watchCount ? 'Manage under Alerts & Watchlist' : 'Add items to get notified'}</div>
+              <div class="stat-meta">${watchCount ? `Low ${watchLowCount} • High ${watchHighCount}` : 'Add items to get notified'}</div>
             </div>
             <div class="stat-card">
               <div class="stat-label">Background monitor</div>
@@ -1140,10 +1257,11 @@
           <div class="list-header">Recent alerts</div>
           ${hitsSection}
         </div>
-      </details>
+        </div>
+      </section>
 
-      <details class="section">
-        <summary>Alerts & Watchlist</summary>
+      <section class="section">
+        <header class="sec-head">Alerts & Watchlist</header>
         <div class="sec-body">
           <div class="toggle-stack">
             <label class="toggle"><input type="checkbox" id="tmw-sounds" ${s.sounds ? 'checked' : ''}/> Sound on watchlist hit</label>
@@ -1157,31 +1275,45 @@
             </div>
             <div>
               <label class="muted">Tip</label>
-              <div class="section-note">Lower values poll faster but increase API load. Stay ≥30s for TOS-friendly pacing.</div>
+              <div class="section-note">Lower values poll faster but increase API load. Stay ≥30s for API-friendly pacing.</div>
             </div>
           </div>
 
           <div class="form-split" style="margin-top:16px; align-items:flex-end;">
             <div>
-              <label>Watchlist item</label>
+              <label>Low price alert item</label>
               <input id="tmw-watch-name" type="text" placeholder="e.g. Xanax" />
             </div>
             <div>
-              <label>Target price</label>
+              <label>Notify at ≤</label>
               <input id="tmw-watch-price" type="number" placeholder="1800000" />
             </div>
-            <div style="min-width:140px;">
-              <button id="tmw-add-watch" class="primary" type="button" style="width:100%;">Add to Watchlist</button>
+            <div style="min-width:160px;">
+              <button id="tmw-add-watch" class="primary" type="button" style="width:100%;">Add low alert</button>
+            </div>
+          </div>
+
+          <div class="form-split" style="margin-top:12px; align-items:flex-end;">
+            <div>
+              <label>High price alert item</label>
+              <input id="tmw-watch-high-name" type="text" placeholder="e.g. Xanax" />
+            </div>
+            <div>
+              <label>Notify at ≥</label>
+              <input id="tmw-watch-high-price" type="number" placeholder="3000000" />
+            </div>
+            <div style="min-width:160px;">
+              <button id="tmw-add-watch-high" class="secondary" type="button" style="width:100%;">Add high alert</button>
             </div>
           </div>
 
           <div class="list-header">Watchlist & monitor</div>
           <div class="list" id="tmw-watch-monitor"></div>
         </div>
-      </details>
+      </section>
 
-      <details class="section">
-        <summary>Appearance</summary>
+      <section class="section">
+        <header class="sec-head">Appearance</header>
         <div class="sec-body">
           <div class="toggle-stack">
             <label class="toggle"><input type="checkbox" id="tmw-minimal" ${s.minimal ? 'checked' : ''}/> Minimal highlight (badge only)</label>
@@ -1196,10 +1328,11 @@
           </div>
           <div class="section-note">Dock icon and signature emblem remain fixed for branding consistency.</div>
         </div>
-      </details>
+        </div>
+      </section>
 
-      <details class="section">
-        <summary>API & Diagnostics</summary>
+      <section class="section">
+        <header class="sec-head">API & Diagnostics</header>
         <div class="sec-body">
           <label>API key</label>
           ${hasKey && apiCollapsed ? `
@@ -1223,7 +1356,7 @@
             <button id="tmw-diagnostics" class="secondary" type="button">Copy diagnostics</button>
           </div>
         </div>
-      </details>
+      </section>
     `;
 
     const apiChange = ui.shadow.getElementById('tmw-api-change');
@@ -1244,6 +1377,7 @@
       ui.shadow.getElementById('tmw-api-key').value = '';
       notify('API key saved securely.');
       removeKeyBanner();
+      hideApiErrorBanner();
       const st = ui.shadow.getElementById('tmw-key-status'); if (st) st.textContent = 'Status: Key set ✓';
       try { const sst = GM_getValue(STORAGE_KEYS.ui, { apiCollapsed:true }); sst.apiCollapsed = true; GM_setValue(STORAGE_KEYS.ui, sst); } catch(_) {}
       // quick validation
@@ -1273,6 +1407,7 @@
       notify('API key cleared.');
       const st = ui.shadow.getElementById('tmw-key-status'); if (st) st.textContent = 'Status: Not set';
       try { const sst = GM_getValue(STORAGE_KEYS.ui, { apiCollapsed:false }); sst.apiCollapsed = false; GM_setValue(STORAGE_KEYS.ui, sst); } catch(_) {}
+      hideApiErrorBanner();
       renderSettingsPanel();
     };
 
@@ -1366,11 +1501,11 @@
     // Clear cache / Reset moved to Extra settings
 
     ui.shadow.getElementById('tmw-diagnostics').onclick = () => {
-      const s2 = getSettings(); const wl = getWatchlist(); const ov = getOverrides();
+      const s2 = getSettings(); const wl = getWatchlist(); const wlHigh = getWatchlistHigh(); const ov = getOverrides();
       const diag = {
         version: (typeof GM_info!=='undefined' && GM_info.script && GM_info.script.version) || 'n/a',
         settings: { ...s2, apiBase: s2.apiBase },
-        counts: { watchlist: Object.keys(wl).length, overrides: Object.keys(ov).length },
+        counts: { watchlistLow: Object.keys(wl).length, watchlistHigh: Object.keys(wlHigh).length, overrides: Object.keys(ov).length },
       };
       const txt = JSON.stringify(diag, null, 2);
       try { navigator.clipboard.writeText(txt).then(() => notify('Diagnostics copied.')); } catch(_) { notify('Copy failed.'); }
@@ -1390,10 +1525,37 @@
         wl[id] = { name, target: price };
         setWatchlist(wl);
         notify(`Added to watchlist: ${name} ≤ ${fmtMoney(price)}`);
+        try {
+          ui.shadow.getElementById('tmw-watch-name').value = '';
+          ui.shadow.getElementById('tmw-watch-price').value = '';
+        } catch(_){}
         renderSettingsPanel();
         return;
       } catch (e) {
         notify('Failed to add watch item. Check API key.');
+      }
+    };
+
+    const addHighBtn = ui.shadow.getElementById('tmw-add-watch-high');
+    if (addHighBtn) addHighBtn.onclick = async () => {
+      const name = ui.shadow.getElementById('tmw-watch-high-name').value.trim();
+      const price = parseMoney(ui.shadow.getElementById('tmw-watch-high-price').value);
+      if (!name || !price) { notify('Enter item name and high trigger price.'); return; }
+      try {
+        const dict = await loadItemsDict();
+        const id = dict.idByName[name.toLowerCase()];
+        if (!id) { notify(`Item not found: ${name}`); return; }
+        const wl = getWatchlistHigh();
+        wl[id] = { name, target: price };
+        setWatchlistHigh(wl);
+        notify(`Added high alert: ${name} ≥ ${fmtMoney(price)}`);
+        try {
+          ui.shadow.getElementById('tmw-watch-high-name').value = '';
+          ui.shadow.getElementById('tmw-watch-high-price').value = '';
+        } catch(_){}
+        renderSettingsPanel();
+      } catch (e) {
+        notify('Failed to add high alert. Check API key.');
       }
     };
 
@@ -1406,30 +1568,39 @@
     try {
       const root = ui.shadow.getElementById('tmw-watch-monitor'); if (!root) return;
       const wl = getWatchlist();
+      const wlHigh = getWatchlistHigh();
       const mon = getMonitorState();
-      const entries = Object.entries(wl);
-      if (!entries.length) {
+      const rowsData = [];
+      for (const [id, info] of Object.entries(wl)) {
+        rowsData.push({ id, name: info.name, target: Number(info.target) || 0, type: 'low' });
+      }
+      for (const [id, info] of Object.entries(wlHigh)) {
+        rowsData.push({ id, name: info.name, target: Number(info.target) || 0, type: 'high' });
+      }
+      if (!rowsData.length) {
         root.innerHTML = '<div class="item muted">No watchlist items yet.</div>';
         return;
       }
-      const rows = entries.map(([id, info]) => {
+      const rows = rowsData.map(({ id, name, target, type }) => {
         const monitor = mon[id] || {};
-        const target = Number(info.target) || 0;
-        const min = typeof monitor.min === 'number' ? monitor.min : null;
         const ts = Number(monitor.ts) || 0;
         const age = ts ? `${Math.max(0, Math.round((Date.now() - ts) / 1000))}s ago` : '—';
-        const diff = (min != null && target) ? min - target : null;
+        const refPrice = type === 'high' ? (typeof monitor.max === 'number' ? monitor.max : null) : (typeof monitor.min === 'number' ? monitor.min : null);
+        const refLabel = refPrice != null ? fmtMoney(refPrice) : '—';
+        const diff = (refPrice != null && target) ? (refPrice - target) : null;
         const diffLabel = diff != null ? `${diff >= 0 ? '+' : ''}${fmtMoney(diff)}` : null;
-        const minLabel = min != null ? fmtMoney(min) : '—';
-        const marketLink = min != null ? `<a class=\"tmw-link tmw-goto\" data-id=\"${id}\" data-p=\"${min}\">[Market]</a>` : '';
-        const monitorLine = `<div class=\"muted\">min: ${minLabel}${diffLabel ? ` • Δ ${diffLabel}` : ''} • ${age} ${marketLink}</div>`;
+        const marketLink = refPrice != null ? `<a class=\"tmw-link tmw-goto\" data-id=\"${id}\" data-p=\"${refPrice}\">[Market]</a>` : '';
+        const label = type === 'high' ? 'max' : 'min';
+        const symbol = type === 'high' ? '≥' : '≤';
+        const typeBadge = type === 'high' ? '<span class="badge-high">High alert</span>' : '<span class="badge-low">Low alert</span>';
+        const monitorLine = `<div class=\"muted\">${label}: ${refLabel}${diffLabel ? ` • Δ ${diffLabel}` : ''} • ${age} ${marketLink}</div>`;
         return `
-          <div class="item" data-id="${id}">
+          <div class="item" data-id="${id}" data-type="${type}">
             <div>
-              <div>${escapeHtml(info.name)} <span class="muted">≤ ${fmtMoney(target)}</span></div>
+              <div>${escapeHtml(name)} <span class="muted">${symbol} ${fmtMoney(target)}</span> ${typeBadge}</div>
               ${monitorLine}
             </div>
-            <div><button data-id="${id}" class="secondary tmw-remove">Remove</button></div>
+            <div><button data-id="${id}" data-type="${type}" class="secondary tmw-remove">Remove</button></div>
           </div>
         `;
       }).join('');
@@ -1438,9 +1609,16 @@
         btn.addEventListener('click', () => {
           if (!confirm('Remove this watchlist item?')) return;
           const id = btn.getAttribute('data-id');
-          const updated = getWatchlist();
-          delete updated[id];
-          setWatchlist(updated);
+          const type = btn.getAttribute('data-type') || 'low';
+          if (type === 'high') {
+            const updatedHigh = getWatchlistHigh();
+            delete updatedHigh[id];
+            setWatchlistHigh(updatedHigh);
+          } else {
+            const updated = getWatchlist();
+            delete updated[id];
+            setWatchlist(updated);
+          }
           renderSettingsPanel();
         });
       });
@@ -1470,6 +1648,27 @@
     } catch (_) {
       console.log('[TMW]', text);
     }
+  }
+
+  function showApiErrorBanner(msg) {
+    try {
+      if (!document.body) { setTimeout(() => showApiErrorBanner(msg), 120); return; }
+      let banner = document.getElementById('tmw-api-banner');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'tmw-api-banner';
+        banner.className = 'tmw-banner tmw-banner-alert';
+        document.body.appendChild(banner);
+      }
+      banner.textContent = `⚠️ ${msg}`;
+    } catch (_) {}
+  }
+
+  function hideApiErrorBanner() {
+    try {
+      const banner = document.getElementById('tmw-api-banner');
+      if (banner) banner.remove();
+    } catch (_) {}
   }
 
   function removeKeyBanner() {
@@ -1531,7 +1730,9 @@
     const s = getSettings();
     if (!s.monitorEnabled || s.paused) return;
     if (!getApiKey()) return;
-    const wl = getWatchlist(); const ids = Object.keys(wl);
+    const wl = getWatchlist();
+    const wlHigh = getWatchlistHigh();
+    const ids = Array.from(new Set([...Object.keys(wl), ...Object.keys(wlHigh)]));
     if (!ids.length) return;
     const st = getMonitorState();
     const iv = Math.max(10, s.monitorIntervalSec||30)*1000;
@@ -1548,12 +1749,14 @@
       const itemId = Number(pick);
       const m = await fetchMarketMedian(itemId);
       const next = { ...(st||{}) };
-      next[pick] = { ...(next[pick]||{}), min: m.min ?? m.median ?? null, ts: Date.now() };
+      next[pick] = { ...(next[pick]||{}), min: m.min ?? m.median ?? null, max: m.max ?? m.median ?? null, ts: Date.now() };
       setMonitorState(next);
       // Compare to target and alert once per interval window
-      const target = Number(wl[pick]?.target || 0);
+      const lowTarget = Number(wl[pick]?.target || 0);
+      const highTarget = Number(wlHigh[pick]?.target || 0);
       const min = next[pick].min;
-      if (min != null && target > 0 && min <= target) {
+      const max = next[pick].max;
+      if (min != null && lowTarget > 0 && min <= lowTarget) {
         const mutedUntil = Number(getMutes()[pick]||0);
         const muted = mutedUntil && Date.now() < mutedUntil;
         const alertedTs = Number(next[pick]?.alertedTs||0);
@@ -1561,9 +1764,37 @@
         if (!muted && (!alertedTs || (Date.now()-alertedTs) > cool)) {
           next[pick].alertedTs = Date.now(); setMonitorState(next);
           const name = wl[pick]?.name || ('#'+pick);
-          notify(`Deal found: ${name} at ${fmtMoney(min)} (target ≤ ${fmtMoney(target)})`);
-          pushHit({ ts: Date.now(), itemId, name, price: min, target });
-          try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-pop'); setTimeout(()=>b.classList.remove('tmw-pop'), 650); } catch(_) {}
+          notify(`Deal found: ${name} at ${fmtMoney(min)} (target ≤ ${fmtMoney(lowTarget)})`);
+          pushHit({ ts: Date.now(), itemId, name, price: min, target: lowTarget, direction: 'low' });
+          try {
+            const b = ui.shadow.getElementById('tmw-dock-btn');
+            b.classList.add('tmw-pop');
+            b.classList.add('tmw-spin-open');
+            setTimeout(()=>b.classList.remove('tmw-pop'), 650);
+            setTimeout(()=>b.classList.remove('tmw-spin-open'), 720);
+          } catch(_) {}
+          try { playHitSound(); } catch(_) {}
+          try { const c = ui.shadow.getElementById('tmw-count'); if (c && ui.panel && ui.panel.style.display!=='block') { c.textContent = String((Number(c.textContent||'0')||0)+1); c.style.display=''; } } catch(_) {}
+          try { if (s.openOnHit) togglePanel(true); } catch(_) {}
+        }
+      }
+      if (max != null && highTarget > 0 && max >= highTarget) {
+        const mutedUntil = Number(getMutes()[pick]||0);
+        const muted = mutedUntil && Date.now() < mutedUntil;
+        const alertedHighTs = Number(next[pick]?.alertedHighTs||0);
+        const cool = 90*1000;
+        if (!muted && (!alertedHighTs || (Date.now()-alertedHighTs) > cool)) {
+          next[pick].alertedHighTs = Date.now(); setMonitorState(next);
+          const name = wlHigh[pick]?.name || ('#'+pick);
+          notify(`Market spike: ${name} at ${fmtMoney(max)} (target ≥ ${fmtMoney(highTarget)})`);
+          pushHit({ ts: Date.now(), itemId, name, price: max, target: highTarget, direction: 'high' });
+          try {
+            const b = ui.shadow.getElementById('tmw-dock-btn');
+            b.classList.add('tmw-pop');
+            b.classList.add('tmw-spin-open');
+            setTimeout(()=>b.classList.remove('tmw-pop'), 650);
+            setTimeout(()=>b.classList.remove('tmw-spin-open'), 720);
+          } catch(_) {}
           try { playHitSound(); } catch(_) {}
           try { const c = ui.shadow.getElementById('tmw-count'); if (c && ui.panel && ui.panel.style.display!=='block') { c.textContent = String((Number(c.textContent||'0')||0)+1); c.style.display=''; } } catch(_) {}
           try { if (s.openOnHit) togglePanel(true); } catch(_) {}
@@ -1667,7 +1898,25 @@
   }
 
   let tmwActiveMenu = null;
-  function closeQuickMenu() { if (tmwActiveMenu) { tmwActiveMenu.remove(); tmwActiveMenu = null; } }
+  let tmwMenuOutside = null;
+  let tmwMenuKeyHandler = null;
+  function closeQuickMenu() {
+    if (tmwMenuOutside) {
+      document.removeEventListener('mousedown', tmwMenuOutside, true);
+      tmwMenuOutside = null;
+    }
+    if (tmwMenuKeyHandler) {
+      window.removeEventListener('keydown', tmwMenuKeyHandler, true);
+      tmwMenuKeyHandler = null;
+    }
+    if (tmwActiveMenu) {
+      if (tmwActiveMenu._toastTimer) {
+        clearTimeout(tmwActiveMenu._toastTimer);
+      }
+      try { tmwActiveMenu.remove(); } catch (_) {}
+      tmwActiveMenu = null;
+    }
+  }
   function attachQuickActions(anchorEl, info) {
     try {
       const trigger = document.createElement('span');
@@ -1726,15 +1975,32 @@
     // Quiet hours disabled: always allow hit sound when sounds are enabled
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const g = ctx.createGain();
+      const master = ctx.createGain();
       const vol = Math.max(0, Math.min(1, Number(s.volume != null ? s.volume : DEFAULTS.volume)));
-      g.gain.value = vol; g.connect(ctx.destination);
-      // two-tone chime: A5 then E5
-      const o1 = ctx.createOscillator(); o1.type = 'sine'; o1.frequency.value = 880; o1.connect(g); o1.start();
-      setTimeout(()=>{ o1.stop(); }, 140);
-      const o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = 659.25; o2.connect(g);
-      setTimeout(()=>{ o2.start(); }, 110);
-      setTimeout(()=>{ o2.stop(); ctx.close(); }, 280);
+      master.gain.value = vol;
+      master.connect(ctx.destination);
+      const now = ctx.currentTime;
+
+      const createTone = (freq, start, duration, type, gainMul) => {
+        const osc = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, now + start);
+        gainNode.gain.setValueAtTime(0.0001, now + start);
+        gainNode.gain.linearRampToValueAtTime(vol * gainMul, now + start + 0.03);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, now + start + duration);
+        osc.connect(gainNode);
+        gainNode.connect(master);
+        osc.start(now + start);
+        osc.stop(now + start + duration + 0.05);
+      };
+
+      createTone(784, 0, 0.42, 'triangle', 0.65);
+      createTone(1174.66, 0.18, 0.38, 'sine', 0.55);
+      createTone(987.77, 0.34, 0.4, 'triangle', 0.4);
+      createTone(1567.98, 0.48, 0.35, 'sine', 0.3);
+
+      setTimeout(() => { try { ctx.close(); } catch(_) {} }, 800);
     } catch(_) {}
   }
 
@@ -1767,8 +2033,11 @@
 
     const settings = getSettings();
     const watchlist = getWatchlist();
+    const watchHigh = getWatchlistHigh();
     const watched = watchlist[info.itemId];
+    const watchedHigh = watchHigh[info.itemId];
     const priceHit = watched && info.price <= watched.target;
+    const priceHighHit = watchedHigh && info.price >= watchedHigh.target;
     let badgeTxt = '';
     let labelSuffix = '';
     let fairValue = null;
@@ -1818,6 +2087,8 @@
       const muteUntil = Number(mutes[info.itemId] || 0);
       const muted = muteUntil && Date.now() < muteUntil;
       info.row.classList.add('tmw-watch');
+      info.row.classList.add('tmw-target');
+      setTimeout(() => { try { info.row.classList.remove('tmw-target'); } catch (_) {} }, 10 * 1000);
       const baseText = badgeTxt ? `${badgeTxt}${labelSuffix}` : (fairBlock.textContent || '');
       const prefix = baseText ? `${baseText} • ` : '';
       fairBlock.textContent = `${prefix}watch hit ≤ ${fmtMoney(watched.target)}`;
@@ -1830,12 +2101,57 @@
         mute.addEventListener('click',(ev)=>{ ev.preventDefault(); const mu = getMutes(); mu[info.itemId] = Date.now()+60*60*1000; setMutes(mu); notify('Muted alerts for 1h'); });
         fairBlock.appendChild(mute);
       } catch(_){}
-      pushHit({ ts: Date.now(), itemId: info.itemId, name: watched.name || info.itemName, price: info.price, target: watched.target });
+      recordMonitorSample(info.itemId, info.price);
+      pushHit({ ts: Date.now(), itemId: info.itemId, name: watched.name || info.itemName, price: info.price, target: watched.target, direction: 'low' });
       if (!muted) {
         notify(`Deal found: ${watched.name || info.itemName} at ${fmtMoney(info.price)} (target ≤ ${fmtMoney(watched.target)})`);
-        try { const b = ui.shadow.getElementById('tmw-dock-btn'); b.classList.add('tmw-pop'); setTimeout(()=>b.classList.remove('tmw-pop'), 650); flashSignature(); } catch(_) {}
+          try {
+            const b = ui.shadow.getElementById('tmw-dock-btn');
+            b.classList.add('tmw-pop');
+            b.classList.add('tmw-spin-open');
+            setTimeout(()=>b.classList.remove('tmw-pop'), 650);
+            setTimeout(()=>b.classList.remove('tmw-spin-open'), 720);
+            flashSignature();
+          } catch(_) {}
         try { playHitSound(); } catch(_) {}
         try { const c = ui.shadow.getElementById('tmw-count'); if (c && ui.panel && ui.panel.style.display!=='block') { c.textContent = String((Number(c.textContent||'0')||0)+1); c.style.display=''; } } catch(_) {}
+      }
+    }
+
+    if (priceHighHit) {
+      const mutes = getMutes();
+      const muteUntil = Number(mutes[info.itemId] || 0);
+      const muted = muteUntil && Date.now() < muteUntil;
+      info.row.classList.add('tmw-watch');
+      info.row.classList.add('tmw-target');
+      setTimeout(() => { try { info.row.classList.remove('tmw-target'); } catch (_) {} }, 10 * 1000);
+      const baseText = badgeTxt ? `${badgeTxt}${labelSuffix}` : (fairBlock.textContent || '');
+      const prefix = baseText ? `${baseText} • ` : '';
+      fairBlock.textContent = `${prefix}watch spike ≥ ${fmtMoney(watchedHigh.target)}`;
+      ensureQuickActions();
+      try {
+        const link = document.createElement('a'); link.textContent=' [Market]'; link.className='tmw-link'; link.href=`https://www.torn.com/item.php?XID=${info.itemId}`;
+        link.addEventListener('click',(ev)=>{ ev.preventDefault(); try{ sessionStorage.setItem('tmw_jump', JSON.stringify({ itemId: info.itemId, markPrice: info.price, ts: Date.now() })); }catch(_){}; location.assign(link.href); });
+        fairBlock.appendChild(link);
+        const mute = document.createElement('a'); mute.textContent=' [Mute 1h]'; mute.className='tmw-link'; mute.href='#';
+        mute.addEventListener('click',(ev)=>{ ev.preventDefault(); const mu = getMutes(); mu[info.itemId] = Date.now()+60*60*1000; setMutes(mu); notify('Muted alerts for 1h'); });
+        fairBlock.appendChild(mute);
+      } catch(_){}
+      recordMonitorSample(info.itemId, info.price);
+      pushHit({ ts: Date.now(), itemId: info.itemId, name: watchedHigh.name || info.itemName, price: info.price, target: watchedHigh.target, direction: 'high' });
+      if (!muted) {
+        notify(`Market spike: ${watchedHigh.name || info.itemName} at ${fmtMoney(info.price)} (target ≥ ${fmtMoney(watchedHigh.target)})`);
+        try {
+          const b = ui.shadow.getElementById('tmw-dock-btn');
+          b.classList.add('tmw-pop');
+          b.classList.add('tmw-spin-open');
+          setTimeout(()=>b.classList.remove('tmw-pop'), 650);
+          setTimeout(()=>b.classList.remove('tmw-spin-open'), 720);
+          flashSignature();
+        } catch(_) {}
+        try { playHitSound(); } catch(_) {}
+        try { const c = ui.shadow.getElementById('tmw-count'); if (c && ui.panel && ui.panel.style.display!=='block') { c.textContent = String((Number(c.textContent||'0')||0)+1); c.style.display=''; } } catch(_) {}
+        if (getSettings().openOnHit) togglePanel(true);
       }
     }
 
