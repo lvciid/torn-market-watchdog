@@ -10,8 +10,8 @@
 // @noframes
 // @homepageURL  https://github.com/lvciid/lvciids-market-watcher
 // @supportURL   https://github.com/lvciid/lvciids-market-watcher/issues
-// @downloadURL  https://lvciid.github.io/lvciids-market-watcher/lvciids-market-watcher.user.js
-// @updateURL    https://lvciid.github.io/lvciids-market-watcher/lvciids-market-watcher.user.meta.js
+// @downloadURL  https://raw.githubusercontent.com/lvciid/lvciids-market-watcher/main/lvciids-market-watcher.user.js
+// @updateURL    https://raw.githubusercontent.com/lvciid/lvciids-market-watcher/main/lvciids-market-watcher.user.meta.js
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
