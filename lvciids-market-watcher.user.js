@@ -31,18 +31,6 @@
   // Config & Constants
   // -----------------------
   const API_BASE = 'https://api.torn.com';
-  // Default dock icons as inline SVG data URIs
-  // Owner-controlled LV monogram (SVG data URIs), optimized for ~22px
-  // Light: near-white stroke; Dark: deep navy stroke
-  // High-quality hosted icon (Iconify CDN, Phosphor storefront — bold, legible)
-  const DOCK_ICON_DEFAULT_LIGHT = 'https://api.iconify.design/ph/storefront-bold.svg?color=white';
-  const DOCK_ICON_DEFAULT_DARK  = 'https://api.iconify.design/ph/storefront-bold.svg?color=white';
-  // Optional: set this to your image URL or data URI to use it as the dock icon
-  // Example: const CUSTOM_ICON_URL = 'data:image/png;base64,...';
-  const CUSTOM_ICON_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAACXBIWXMAAAsTAAALEwEAmpwYAAAEkUlEQVR4nO2ZeaxdQxzHP729qtrQUttD0Uo9tGqPJURsQSxRlPL+EPwhJRIEpQtF7YQ2VEIJESSopVH9ByGKiKaW0lbl8Uhf6OPVUkmVLvKT78iYnHPPzN1eE/eTnOS9e2bmzPfMzG870KJFixb/Z0rAaOBc4GpgKjAduAm4C5gBXAuMA/ZgM6MMnAk8D/QCm3R9CbwEPADcBkwCpgD3A68B3wPLJW54XwoYAEwEvvUm/z5wGdAW0b8fcCgwC1gNzAF2pckcCSzxBLwLHF3DeEOBu4EfgUtpAvYWrwP+koA1erD9Xg/GAp8BTwNb0sCD/Ji3Ct8B+zbgOYOBucDb+ruu2Bt/whPRBYygcZSAp4C3dBbrxvRgJZphOvsDr8oI1IUTgA0SsR44huaxNbAMuLDWgQZrBdxq3ErzOQxYBexYyyAzPBFL5Pz6gpnAQ9V23lbm1QmZEHFAB9EYtgd+qjYCuMETsVyHLw/zLb/oLJnZ3DPyGQMVwtj2/QQ4o0LbB4E7qYKlnhALO/IY77Vz1yKtUBH3BP3+lFPMYh+gO3Lcf9nfG3xjQez0YoYQu/aOeE5XRr+bK7Q3r39UipArg7dbibk5QtoTV91dtk3zuFcRdDTPJJjcCRmTWRy5BS4P+q0uWP2zgXkpQhZ5g58f0X4y8LvavwfslfCsC5S3WBw3qqDtflrFaHo8IUdE9ikrHG+0p1+T0mGtJ2RnNh/6K0yKxuUbdm3RuHn9E3yWE6PwDSn5z6+eEPPwqYwBZgO35IThljQ9rpW3OOqKyHGHqS4QzTeeEPMpKYzXGbsDeAX4WMIcbcrtvwJ2Ag4BvpAFK2KM2kbzhifErEos2+gNW8TquETCrlGu360KykivzSjl60MiXpL5raRo0wl5JKGfhTLPZfw+QgWKjYrJDshoswA4r2B8i7WmJcznP/FTV8LhslD7vpx7x0vEsTlbxlbyoILxP0qt1gxTAOfEHBfZ70BtozlB4eAcYCVweEafHYCvgY6CsXeX2GQr+ronxA5tLO1axWXaQhM1UYteQwZpy5lhKGJKtcnVWUEEXLTsPrspx7BV/Vz/Z4l4U37hlIi8pbva8lNJCZUTszDhrHRogvNz/NBWnmWcpUlaxJ2HWbwXqIFxQXRqhegiLEJdpxJSKedMLNR4D3se/lPVCEJ20dmouY62wBOyXuWhPMbKH5yWc9/OSafG+i3wG2Z6Qx9R0vazTxE106bJOTE9Fd7OcN3Pyu9N3A/edrVcPcyBJmUkUvNT09tKWFHuD0/MSn3QyeKdIIsboG8infL4A5V7LFV+MUTprX2e8M/TjdpuFi3UFbf3nZhehRwhVkFZobqtZZcfKnEKc5WLgJ815jyvDFtWZLFY56khnCrv7MSsVdmonGGVOuQfLq5g7bZTW8dI+ZWXlUQ1lHa9rTBHP7iGMYcq5O9RSF+v7y2FlGVJegOnadXzkwqKeY5+OjMzJeDRvvj05rCDen3gODfJOpkVugo4HTgROFnbbZqc2yrVqaZGfnNsGqM18SdVSVkh69apcugHwLPA7SohWRDYokULmsPf6qtUFOay8z8AAAAASUVORK5CYII=";
-  // Lock the buddy as the icon; ignore runtime overrides
-  const LOCK_BUDDY_ICON = true;
-  
   const STORAGE_KEYS = {
     apiKey: 'tmw_api_key',
     items: 'tmw_items_dict', // { ts: number, itemsById: {...}, idByName: {...} }
@@ -54,7 +42,6 @@
     ui: 'tmw_ui_state', // { dock:{x:number,y:number}, open:boolean, apiCollapsed?:boolean }
     mutes: 'tmw_mutes', // { [itemId]: number (muteUntilTs) }
     hits: 'tmw_hits', // [ { ts, itemId, name, price, target } ]
-    userIcon: 'tmw_user_icon', // data URL for custom dock icon
   };
 
   // Defaults
@@ -381,34 +368,35 @@
       <style>
         :host { all: initial; }
         .dock { position:fixed; bottom:0; right:0; transform: translate(0,0); }
-        .dock-btn { position:relative; width:60px; height:60px; border-radius:20px; color:#f8fafc; border:1px solid rgba(148,197,253,.18);
-          box-shadow: 0 24px 38px rgba(8,15,40,.58), inset 0 0 0 1px rgba(148,197,253,.12);
-          cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:24px; transition: transform .2s ease, box-shadow .25s ease;
-          background: linear-gradient(160deg, rgba(15,23,42,.95), rgba(30,41,59,.9)); overflow:hidden; backdrop-filter: blur(8px);
+        .dock-btn { position:relative; width:60px; height:60px; border-radius:20px; color:#f8fafc; border:1px solid rgba(148,197,253,.22);
+          box-shadow: 0 24px 38px rgba(8,15,40,.6), inset 0 0 0 1px rgba(148,197,253,.14);
+          cursor:pointer; display:flex; align-items:center; justify-content:center; transition: transform .2s ease, box-shadow .25s ease;
+          background: rgba(15,23,42,.9); overflow:hidden; backdrop-filter: blur(10px);
         }
-        .dock-btn::before { content:""; position:absolute; inset:-40%; border-radius:50%; background:
-            radial-gradient(65% 70% at 20% 40%, rgba(96,165,250,.55), transparent 75%),
-            radial-gradient(60% 65% at 80% 30%, rgba(236,72,153,.45), transparent 80%),
-            radial-gradient(75% 80% at 50% 120%, rgba(16,185,129,.4), transparent 85%);
+        .dock-btn::before { content:""; position:absolute; inset:-38%; border-radius:50%; background:
+            radial-gradient(70% 68% at 22% 32%, rgba(59,130,246,.45), transparent 75%),
+            radial-gradient(65% 62% at 78% 18%, rgba(236,72,153,.42), transparent 78%),
+            radial-gradient(75% 80% at 52% 118%, rgba(16,185,129,.38), transparent 85%);
           mix-blend-mode: screen; animation: tmw-aurora-btn 14s ease-in-out infinite; opacity:.9; }
-        .dock-btn::after { content:""; position:absolute; inset:-35%; border-radius:50%; background:
-            radial-gradient(45% 50% at 30% 20%, rgba(148,197,253,.35), transparent 70%),
-            radial-gradient(55% 60% at 70% 80%, rgba(96,165,250,.28), transparent 75%);
-          mix-blend-mode: screen; animation: tmw-aurora-btn2 18s ease-in-out infinite; opacity:.7; }
+        .dock-btn::after { content:""; position:absolute; inset:-32%; border-radius:50%; background:
+            radial-gradient(40% 48% at 30% 24%, rgba(148,197,253,.35), transparent 70%),
+            radial-gradient(48% 52% at 68% 76%, rgba(96,165,250,.3), transparent 78%);
+          mix-blend-mode: screen; animation: tmw-aurora-btn2 18s ease-in-out infinite; opacity:.72; }
         .dock-btn:hover { transform: translateY(-3px); box-shadow: 0 30px 46px rgba(8,15,40,.65), inset 0 0 0 1px rgba(148,197,253,.18); }
         .dock-btn:active { transform: translateY(0) scale(.96); }
-        #tmw-emoji, .icon-preview, .dock-btn .yell, .dock-btn .flare { display:none !important; }
+        #tmw-emoji, .icon-preview { display:none !important; }
+        .dock-btn .btn-stars { position:absolute; inset:-6px; pointer-events:none; background:
+            radial-gradient(1.6px 1.6px at 18% 26%, rgba(226,232,240,.86), transparent 60%),
+            radial-gradient(1.2px 1.2px at 48% 12%, rgba(191,219,254,.75), transparent 60%),
+            radial-gradient(1.4px 1.4px at 70% 38%, rgba(148,197,253,.8), transparent 62%),
+            radial-gradient(1.3px 1.3px at 36% 70%, rgba(226,232,240,.72), transparent 60%),
+            radial-gradient(1.7px 1.7px at 82% 58%, rgba(191,219,254,.78), transparent 62%),
+            radial-gradient(1.2px 1.2px at 58% 82%, rgba(148,197,253,.68), transparent 60%);
+          opacity:.75; animation: tmw-stars-btn 9s ease-in-out infinite; filter: blur(.2px); }
         .dock-btn.tmw-breathe { animation: tmw-breath 3.2s ease-in-out infinite alternate; }
         .dock-btn.tmw-pop { animation: tmw-pop 600ms ease; }
         .dock-btn.tmw-spin { animation: tmw-spin 480ms ease-out; }
         .dock-btn.tmw-spin-open { animation: tmw-spin-open 700ms ease-out; }
-        /* Irritated effect */
-        .dock-btn.tmw-irritated { animation: tmw-shake 600ms cubic-bezier(.36,.07,.19,.97) both; }
-        .dock-btn.tmw-irritated .icon-preview { filter: drop-shadow(0 0 10px rgba(255,59,48,.8)); }
-        .dock-btn.tmw-irritated::before { opacity:1; }
-        .dock-btn.tmw-irritated::after { opacity:1; }
-        /* Hover yell: show sound waves and tilt */
-        .dock-btn:hover .yell { opacity:1; animation: tmw-yell 900ms ease-out infinite; }
         .dock-btn:hover .icon-preview, .dock-btn:hover #tmw-emoji { transform: scale(1.08) rotate(-6deg); }
         .dock-btn.state-active { background: linear-gradient(155deg, rgba(30,41,59,.9), rgba(15,23,42,.96)), radial-gradient(circle at 30% 18%, rgba(59,130,246,.35), rgba(15,23,42,0) 58%); }
         .dock-btn.state-paused { background: linear-gradient(155deg, rgba(127,29,29,.92), rgba(153,27,27,.88)), radial-gradient(circle at 28% 18%, rgba(252,165,165,.35), rgba(76,5,5,0) 60%); }
@@ -494,9 +482,25 @@
         .hit-meta { font-size:11px; color:#94a3b8; margin-top:4px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
         .hit-meta a { color:#93c5fd; text-decoration:none; font-weight:600; }
         .hit-meta a:hover { text-decoration:underline; }
-        .tmw-quick-panel { position:fixed; width:240px; background:rgba(10,17,35,.95); border:1px solid rgba(148,197,253,.3); border-radius:14px; padding:14px 16px; box-shadow:0 26px 48px rgba(8,15,40,.65); display:flex; flex-direction:column; gap:12px; z-index:2147483647; backdrop-filter: blur(10px); }
-        .tmw-quick-panel::before { content:""; position:absolute; top:var(--arrow-top, 50%); right:-12px; transform: translateY(-50%); border-width:10px; border-style:solid; border-color: transparent transparent transparent rgba(10,17,35,.95); }
-        .tmw-quick-panel::after { content:""; position:absolute; top:var(--arrow-top, 50%); right:-14px; transform: translateY(-50%); border-width:12px; border-style:solid; border-color: transparent transparent transparent rgba(148,197,253,.18); filter: blur(.3px); }
+        .tmw-quick-panel { position:fixed; width:240px; background:rgba(15,23,42,.9); border:1px solid rgba(148,197,253,.3); border-radius:16px; padding:18px 18px 16px; box-shadow:0 26px 48px rgba(8,15,40,.65); display:flex; flex-direction:column; gap:12px; z-index:2147483647; backdrop-filter: blur(12px); overflow:hidden; }
+        .tmw-quick-panel::before { content:""; position:absolute; top:var(--arrow-top, 50%); right:-12px; transform: translateY(-50%); border-width:10px; border-style:solid; border-color: transparent transparent transparent rgba(15,23,42,.9); }
+        .tmw-quick-panel::after { content:""; position:absolute; top:var(--arrow-top, 50%); right:-14px; transform: translateY(-50%); border-width:12px; border-style:solid; border-color: transparent transparent transparent rgba(148,197,253,.2); filter: blur(.4px); }
+        .tmw-quick-panel .quick-aurora { position:absolute; inset:-40%; border-radius:32px; background:
+            radial-gradient(70% 64% at 20% 30%, rgba(59,130,246,.36), transparent 78%),
+            radial-gradient(62% 60% at 76% 18%, rgba(236,72,153,.34), transparent 80%),
+            radial-gradient(72% 78% at 48% 120%, rgba(16,185,129,.3), transparent 85%);
+          mix-blend-mode: screen; animation: tmw-aurora-btn 18s ease-in-out infinite; opacity:.85; pointer-events:none; }
+        .tmw-quick-panel .quick-stars { position:absolute; inset:-10%; border-radius:32px; background:
+            radial-gradient(1.5px 1.5px at 25% 28%, rgba(226,232,240,.82), transparent 60%),
+            radial-gradient(1.2px 1.2px at 52% 18%, rgba(191,219,254,.72), transparent 62%),
+            radial-gradient(1.4px 1.4px at 72% 48%, rgba(148,197,253,.75), transparent 60%),
+            radial-gradient(1.3px 1.3px at 34% 70%, rgba(226,232,240,.7), transparent 60%),
+            radial-gradient(1.6px 1.6px at 84% 60%, rgba(191,219,254,.76), transparent 62%);
+          opacity:.78; filter: blur(.18px); animation: tmw-stars-quick 10s ease-in-out infinite; pointer-events:none; }
+        .tmw-quick-panel .quick-header,
+        .tmw-quick-panel .quick-body,
+        .tmw-quick-panel .quick-footer,
+        .tmw-quick-panel .quick-toast { position:relative; }
         .tmw-quick-panel input[type="range"] { width:100%; accent-color:#60a5fa; }
         .tmw-quick-panel.muted-slider input[type="range"] { opacity:.4; }
         .quick-header { display:flex; align-items:center; justify-content:space-between; font-size:12px; font-weight:600; color:#e0f2fe; letter-spacing:.35px; text-transform:uppercase; }
@@ -536,7 +540,15 @@
           80%{ transform: translate3d(2%,-3%,0) scale(1.02); opacity:.68; }
           100%{ transform: translate3d(3%,-2%,0) scale(1); opacity:.7; } }
         @keyframes tmw-aurora-pulse { 0%{ transform: translate3d(0,0,0) scale(1); } 30%{ transform: translate3d(-3%,2%,0) scale(1.04); } 60%{ transform: translate3d(2%,-3%,0) scale(1.07); } 100%{ transform: translate3d(0,0,0) scale(1); } }
+        @keyframes tmw-stars-btn { 0%{ opacity:.72; transform: translate3d(0,0,0); }
+          35%{ opacity:.9; transform: translate3d(-2%,1%,0); }
+          70%{ opacity:.65; transform: translate3d(1%,-1%,0); }
+          100%{ opacity:.72; transform: translate3d(0,0,0); } }
         @keyframes tmw-stars-twinkle { 0%,100% { opacity:.6; transform: translate3d(0,0,0); } 30% { opacity:.85; transform: translate3d(-1%,-2%,0); } 55% { opacity:.5; transform: translate3d(1%,2%,0); } 80% { opacity:.75; transform: translate3d(-0.5%,1%,0); } }
+        @keyframes tmw-stars-quick { 0%{ opacity:.72; transform: translate3d(0,0,0); }
+          40%{ opacity:.88; transform: translate3d(-1.5%,1%,0); }
+          80%{ opacity:.68; transform: translate3d(1%, -0.8%,0); }
+          100%{ opacity:.72; transform: translate3d(0,0,0); } }
         @keyframes tmw-aurora-glow { 0%{ transform: translate3d(-1%,0,0) scale(1); opacity:.68; } 40%{ transform: translate3d(-3%,1%,0) scale(1.05); opacity:.82; } 70%{ transform: translate3d(2%,-1%,0) scale(1.07); opacity:.58; } 100%{ transform: translate3d(-1%,0,0) scale(1); opacity:.68; }
         @keyframes tmw-spin-open { 0%{ transform: rotate3d(0,0,1,0deg); }
           45%{ transform: rotate3d(0,0,1,220deg); }
@@ -545,19 +557,7 @@
         .tmw-target { outline:2px solid rgba(96,165,250,.85) !important; box-shadow:0 0 0 4px rgba(30,64,175,.25); animation: tmw-target-pulse 1.4s ease-in-out infinite alternate; border-radius:8px; }
         @keyframes tmw-target-pulse { from { box-shadow:0 0 0 4px rgba(30,64,175,.25); } to { box-shadow:0 0 18px 6px rgba(94,234,212,.45); } }
         .idle-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#93c5fd; margin-left:8px; box-shadow:0 0 8px rgba(59,130,246,.6); animation: tmw-pulse 2.2s ease-in-out infinite; vertical-align:middle; }
-        @media (prefers-reduced-motion: reduce) { .dock-btn.tmw-breathe, .dock-btn.tmw-pop, .dock-btn.tmw-spin, .dock-btn.tmw-irritated, .panel.tmw-anim-in, .idle-dot, .panel::before { animation: none !important; } }
-        @keyframes tmw-shake {
-          10% { transform: translate(-1px,0) rotate(-2deg); }
-          20% { transform: translate(2px,0) rotate(2deg); }
-          30% { transform: translate(-3px,0) rotate(-3deg); }
-          40% { transform: translate(3px,0) rotate(3deg); }
-          50% { transform: translate(-4px,0) rotate(-2deg); }
-          60% { transform: translate(4px,0) rotate(2deg); }
-          70% { transform: translate(-3px,0) rotate(-1deg); }
-          80% { transform: translate(3px,0) rotate(1deg); }
-          90% { transform: translate(-2px,0) rotate(0deg); }
-          100% { transform: translate(0,0) rotate(0); }
-        }
+        @media (prefers-reduced-motion: reduce) { .dock-btn.tmw-breathe, .dock-btn.tmw-pop, .dock-btn.tmw-spin, .panel.tmw-anim-in, .idle-dot, .panel::before { animation: none !important; } }
         .tmw-modal { position:fixed; inset:0; z-index:2147483647; display:flex; align-items:center; justify-content:center; }
         .tmw-backdrop { position:absolute; inset:0; background:rgba(0,0,0,.5); }
         .tmw-sheet { position:relative; width:360px; max-width:90vw; background:#0b1220; color:#e5e7eb; border:1px solid #1f2937; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.45); padding:12px; }
@@ -575,8 +575,7 @@
         <button class="dock-btn" id="tmw-dock-btn" title="Open Market Watcher" aria-label="Open Market Watcher">
           <span id="tmw-emoji">🐶</span>
           <img id="tmw-icon-img" class="icon-preview" style="display:none" alt="icon"/>
-          <span class="yell" aria-hidden="true"></span>
-          <span class="flare" aria-hidden="true"></span>
+          <span class="btn-stars" aria-hidden="true"></span>
           <span class="ring" id="tmw-ring"></span>
           <span class="dot" id="tmw-dot"></span>
           <span class="badge" id="tmw-count" style="display:none" role="status" aria-live="polite">0</span>
@@ -603,7 +602,6 @@
         const s = getSettings(); s.hideOverpriced = !s.hideOverpriced; setSettings(s); notify('Toggled hide-overpriced'); scanDomSoon(); return;
       }
       togglePanel(ui.panel.style.display !== 'block');
-      try { irritateDock(); } catch(_) {}
     });
     btn.addEventListener('dblclick', (e) => { e.preventDefault(); const s = getSettings(); s.showOnlyDeals = !s.showOnlyDeals; setSettings(s); notify('Toggled deals-only'); scanDomSoon(); });
     btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openDockMenu(e); });
@@ -614,7 +612,6 @@
     enforceBrand();
     applyDockIcon();
     applyDockShape();
-    if (!LOCK_BUDDY_ICON) bindCustomIconInputs();
     try {
       const mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
       if (mq && mq.addEventListener) mq.addEventListener('change', applyDockIcon);
@@ -645,94 +642,7 @@
   }
 
   // Make the dock look irritated and hop around briefly
-  function irritateDock() {
-    try {
-      const btn = ui.shadow.getElementById('tmw-dock-btn');
-      const dock = ui.shadow.getElementById('tmw-dock');
-      if (!btn || !dock) return;
-      btn.classList.add('tmw-irritated');
-      setTimeout(() => { try { btn.classList.remove('tmw-irritated'); } catch(_) {} }, 520);
-      rageBounce(dock, 8, 26);
-    } catch(_) {}
-  }
-
-  // Quick hops by applying a temporary translate() on the dock container
-  function rageBounce(el, hops = 7, radius = 28) {
-    let i = 0; let canceled = false;
-    const origTransform = el.style.transform || 'translate(0,0)';
-    const doHop = () => {
-      if (canceled) return;
-      if (i++ >= hops) {
-        el.style.transition = 'transform 110ms cubic-bezier(.2,.7,.2,1.2)';
-        el.style.transform = 'translate(0,0) scale(1.0, 0.96)';
-        setTimeout(() => { el.style.transform = 'translate(0,0)'; }, 70);
-        return;
-      }
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 10 + Math.random() * radius;
-      const x = Math.cos(angle) * dist;
-      const y = -Math.abs(Math.sin(angle) * dist);
-      el.style.transition = 'transform 130ms cubic-bezier(.2,.7,.2,1.2)';
-      el.style.transform = `translate(${x}px, ${y}px)`;
-      setTimeout(() => {
-        el.style.transform = 'translate(0,0) scale(1.02, 0.96)';
-        setTimeout(() => { el.style.transform = 'translate(0,0)'; doHop(); }, 60);
-      }, 130);
-    };
-    // If user starts dragging, cancel bounce
-    const onDown = () => { canceled = true; el.style.transform = origTransform; };
-    window.addEventListener('mousedown', onDown, { once: true });
-    doHop();
-  }
-
   // Allow setting a custom icon by dropping/pasting/choosing an image
-  function bindCustomIconInputs() {
-    try {
-      const btn = ui.shadow.getElementById('tmw-dock-btn'); if (!btn) return;
-      const onDrop = (e) => {
-        e.preventDefault();
-        const f = (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) || null;
-        if (f && f.type && f.type.startsWith('image/')) { fileToDataUrl(f).then(setUserIcon).catch(()=>{}); }
-      };
-      const onDrag = (e) => { e.preventDefault(); };
-      btn.addEventListener('dragover', onDrag);
-      btn.addEventListener('drop', onDrop);
-      window.addEventListener('paste', (e) => {
-        const items = (e.clipboardData && e.clipboardData.items) || [];
-        for (const it of items) {
-          if (it.type && it.type.startsWith('image/')) {
-            const f = it.getAsFile(); if (f) { fileToDataUrl(f).then(setUserIcon).catch(()=>{}); }
-          }
-        }
-      });
-    } catch(_) {}
-  }
-
-  function openIconPicker() {
-    try {
-      const inp = document.createElement('input');
-      inp.type = 'file'; inp.accept = 'image/*';
-      inp.addEventListener('change', () => { const f = inp.files && inp.files[0]; if (f) fileToDataUrl(f).then(setUserIcon).catch(()=>{}); });
-      inp.click();
-    } catch(_) {}
-  }
-
-  function setUserIcon(dataUrl) {
-    try { GM_setValue(STORAGE_KEYS.userIcon, dataUrl); applyDockIcon(); notify('Custom icon set'); } catch(_) {}
-  }
-
-  function clearUserIcon() {
-    try { GM_deleteValue(STORAGE_KEYS.userIcon); applyDockIcon(); notify('Custom icon cleared'); } catch(_) {}
-  }
-
-  function fileToDataUrl(file) {
-    return new Promise((resolve, reject) => {
-      const fr = new FileReader();
-      fr.onload = () => resolve(String(fr.result||''));
-      fr.onerror = reject; fr.readAsDataURL(file);
-    });
-  }
-
   function applyDockShape() { try { const root = ui.shadow.getElementById('tmw-dock'); if (root) { root.classList.remove('shape-tag','shape-signature'); root.classList.add('shape-circle'); } } catch(_) {} }
 
   function enforceBrand() { /* no-op: only circle used */ }
@@ -784,7 +694,9 @@
       if (ring) {
         let ang = 0;
         if (s.monitorEnabled) {
-          const wl = getWatchlist(); const ids = Object.keys(wl);
+          const wl = getWatchlist();
+          const wlHigh = getWatchlistHigh();
+          const ids = Array.from(new Set([...Object.keys(wl), ...Object.keys(wlHigh)]));
           const st = getMonitorState(); const iv = Math.max(10, s.monitorIntervalSec||30)*1000;
           if (ids.length) {
             let minRemain = iv;
@@ -814,6 +726,8 @@
       panel.className = 'tmw-quick-panel';
       const volPct = Math.round(((s.volume != null ? s.volume : DEFAULTS.volume) || 0) * 100);
       panel.innerHTML = `
+        <span class="quick-aurora" aria-hidden="true"></span>
+        <span class="quick-stars" aria-hidden="true"></span>
         <div class="quick-header">
           <span>Quick Controls</span>
           <button type="button" class="quick-close" aria-label="Close quick controls">×</button>
@@ -902,6 +816,9 @@
         const value = Math.max(0, Math.min(100, Number(e2.target.value) || 0));
         volumeLabel.textContent = `${value}%`;
         applySettings((cfg) => { cfg.volume = value / 100; });
+      });
+      slider.addEventListener('change', () => {
+        flashQuickStatus(`Volume ${slider.value}%`);
       });
       slider.addEventListener('change', () => {
         flashQuickStatus(`Volume ${slider.value}%`);
@@ -1515,7 +1432,8 @@
 
     ui.shadow.getElementById('tmw-add-watch').onclick = async () => {
       const name = ui.shadow.getElementById('tmw-watch-name').value.trim();
-      const price = parseMoney(ui.shadow.getElementById('tmw-watch-price').value);
+      const priceInput = ui.shadow.getElementById('tmw-watch-price');
+      const price = parseMoney(priceInput.value);
       if (!name || !price) { notify('Enter item name and target price.'); return; }
       try {
         const dict = await loadItemsDict();
@@ -1527,7 +1445,7 @@
         notify(`Added to watchlist: ${name} ≤ ${fmtMoney(price)}`);
         try {
           ui.shadow.getElementById('tmw-watch-name').value = '';
-          ui.shadow.getElementById('tmw-watch-price').value = '';
+          priceInput.value = '';
         } catch(_){}
         renderSettingsPanel();
         return;
@@ -1539,7 +1457,8 @@
     const addHighBtn = ui.shadow.getElementById('tmw-add-watch-high');
     if (addHighBtn) addHighBtn.onclick = async () => {
       const name = ui.shadow.getElementById('tmw-watch-high-name').value.trim();
-      const price = parseMoney(ui.shadow.getElementById('tmw-watch-high-price').value);
+      const priceInput = ui.shadow.getElementById('tmw-watch-high-price');
+      const price = parseMoney(priceInput.value);
       if (!name || !price) { notify('Enter item name and high trigger price.'); return; }
       try {
         const dict = await loadItemsDict();
@@ -1551,7 +1470,7 @@
         notify(`Added high alert: ${name} ≥ ${fmtMoney(price)}`);
         try {
           ui.shadow.getElementById('tmw-watch-high-name').value = '';
-          ui.shadow.getElementById('tmw-watch-high-price').value = '';
+          priceInput.value = '';
         } catch(_){}
         renderSettingsPanel();
       } catch (e) {
@@ -1652,6 +1571,7 @@
 
   function showApiErrorBanner(msg) {
     try {
+      if (!getApiKey()) return;
       if (!document.body) { setTimeout(() => showApiErrorBanner(msg), 120); return; }
       let banner = document.getElementById('tmw-api-banner');
       if (!banner) {
