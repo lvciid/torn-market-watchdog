@@ -37,7 +37,7 @@
     marketCache: 'tmw_market_cache', // { [itemId]: { ts: number, median: number, min: number, sample: number } }
     watchlist: 'tmw_watchlist', // { [itemId]: { name: string, target: number } }
     watchlistHigh: 'tmw_watchlist_high', // { [itemId]: { name: string, target: number } }
-    settings: 'tmw_settings', // { goodThreshold, overpriceMultiplier, refreshSeconds, apiBase, dockIconLight, dockIconDark, dockShape, minimal, colorblind, showOnlyDeals, hideOverpriced, alwaysConfirm, disableOverConfirm, sounds, quiet, compactBadges, badgePosition, openOnHit, monitorEnabled, monitorIntervalSec }
+    settings: 'tmw_settings', // { goodThreshold, overpriceMultiplier, refreshSeconds, apiBase, minimal, colorblind, showOnlyDeals, hideOverpriced, alwaysConfirm, disableOverConfirm, sounds, quiet, compactBadges, badgePosition, openOnHit, monitorEnabled, monitorIntervalSec }
     monitor: 'tmw_monitor', // { [itemId]: { min:number|null, ts:number, alertedTs?:number } }
     ui: 'tmw_ui_state', // { dock:{x:number,y:number}, open:boolean, apiCollapsed?:boolean }
     mutes: 'tmw_mutes', // { [itemId]: number (muteUntilTs) }
@@ -52,7 +52,6 @@
     itemsTtlMs: 24 * 60 * 60 * 1000, // 24h
     marketTtlMs: 60 * 1000, // 60s
     minimal: false,
-    dockShape: 'circle', // circle only
     colorblind: false,
     showOnlyDeals: false,
     hideOverpriced: false,
@@ -81,9 +80,6 @@
       refreshSeconds: Number(s.refreshSeconds) || DEFAULTS.refreshSeconds,
       apiBase: String(s.apiBase || API_BASE),
       // Emblem is hardwired for all users (owner can change in script only)
-      dockIconLight: DOCK_ICON_DEFAULT_LIGHT,
-      dockIconDark: DOCK_ICON_DEFAULT_DARK,
-      dockShape: s.dockShape || DEFAULTS.dockShape,
       minimal: s.minimal != null ? !!s.minimal : DEFAULTS.minimal,
       // Colorblind palette disabled by default per owner request
       colorblind: false,
