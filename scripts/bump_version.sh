@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Bumps the @version in torn-market-watchdog.user.js
+# Bumps the @version in lvciids-market-watcher.user.js
 # Usage:
 #   scripts/bump_version.sh           # bump patch (x.y.Z)
 #   scripts/bump_version.sh patch     # bump patch (default)
@@ -9,7 +9,7 @@ set -euo pipefail
 #   scripts/bump_version.sh major     # bump major (X.0.0)
 #   scripts/bump_version.sh set 1.2.3 # set explicit version
 
-FILE="torn-market-watchdog.user.js"
+FILE="lvciids-market-watcher.user.js"
 MODE="${1:-patch}"
 TARGET="${2:-}"
 
@@ -49,4 +49,3 @@ if command -v git >/dev/null 2>&1; then
     git add "$FILE" 2>/dev/null || true
   fi
 fi
-

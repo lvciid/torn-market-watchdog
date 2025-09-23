@@ -1,4 +1,4 @@
-# Torn Market Watchdog
+# lvciid's Market Watcher
 
 A Tampermonkey userscript that highlights deals, warns on ripoffs, and alerts watchlist hits on Torn’s markets — powered by your own Torn API key. Keys stay local; no telemetry.
 
@@ -7,7 +7,7 @@ A Tampermonkey userscript that highlights deals, warns on ripoffs, and alerts wa
 1) Install a userscript manager (Tampermonkey or Violentmonkey).
 2) Install from GitHub Pages (auto‑update ready):
 
-[https://lvciid.github.io/torn-market-watchdog/torn-market-watchdog.user.js]
+https://lvciid.github.io/lvciids-market-watcher/lvciids-market-watcher.user.js
 3) Open torn.com. A dock button appears (bottom‑right). Click it to open settings and paste your Torn API key (Limited Access recommended).
 
 Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@version` increases.
@@ -15,7 +15,7 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 ## Help / Support
 
 - Message on Torn: https://www.torn.com/profiles.php?XID=3888554
-- GitHub: https://github.com/lvciid/torn-market-watchdog
+- GitHub: https://github.com/lvciid/lvciids-market-watcher
 - See this README for full functionality and usage tips.
 
 ## Highlights
@@ -28,13 +28,14 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 - Filters: “Show deals only”, “Hide overpriced”.
 - Color/UX: Colorblind palette; Minimal (badge‑only) mode; compact money; badge position (by name/price).
 - Quick actions: Small “⋯” next to badge → Watch, Ignore, Override, Clear, Mute 1h.
-- Dock UX: Click toggles panel; status dot shows paused (red), cooling (amber), snoozed (blue). Right‑click the dock for a radial menu (pause, snooze, filters, settings). Extra settings open in a compact modal.
+- Dock UX: Click toggles panel; status dot shows paused (red) or cooling (amber). Right-click the dock for a radial menu (pause, filters, settings). Extra settings open in a compact modal.
+- Panel UI: Collapsible Overview / Alerts / Appearance / API sections with status cards keep controls tidy even on smaller screens, with an aurora header highlighting “lvciid’s Market Watcher”.
 - Radial menu legend: D = toggle “Deals only”, O = toggle “Hide overpriced”. A checkmark (✓) appears when the filter is active.
-- Signature dock: Fixed “Signature shield” button (creator’s calling card) with an LV cutout and an always‑on animated lightning monogram. State‑aware gradients (active/paused/snoozed/cooling) with a soft aura on active. The hit sound is a short two‑tone chime.
+- Signature dock: Fixed “Signature shield” button (creator’s calling card) with an LV cutout and an always‑on animated lightning monogram. State‑aware gradients (active/paused/cooling) with a soft aura on active. The hit sound is a short two‑tone chime.
 - Progress ring: shows time to next monitor tick. Badge count shows new hits.
 - Shortcuts: Alt+W (panel), Alt+D (deals), Alt+O (hide overpriced), Alt+P (pause).
 - Icons: Built‑in light/dark LV emblem, auto theme switch. Emblem is fixed in the script (not user‑configurable).
-- TOS‑friendly: Single‑flight queue, conservative pacing, retries + cooldown, snooze; no automation.
+- TOS‑friendly: Single‑flight queue, conservative pacing, retries + cooldown; no automation.
 
 ## Settings Overview
 
@@ -46,7 +47,7 @@ Tip: Tampermonkey checks the URL above for updates. Updates apply faster when `@
 - Appearance: Minimal mode; Colorblind palette; Badge position; Compact badges.
 - Watchlist & Overrides: Add target price; per‑item thresholds; ignore item.
 - Notifications: Two‑tone chime on hit (only when price ≤ your watchlist target). Quiet hours and Open panel on hit. Volume control + Test live in Extra settings (right‑click the dock → Extra settings…).
-- Snooze: Pause scanning for 5/15/30m from the radial dock menu; clear snooze. Progress ring shows time to next monitor check.
+- Progress ring: shows time to next monitor check.
 - Branding: The dock uses a fixed “Signature shield” with an LV monogram (the creator’s calling card). This is intentional and not user‑configurable.
 
 ### Extra Settings (right‑click dock → Extra settings…)
